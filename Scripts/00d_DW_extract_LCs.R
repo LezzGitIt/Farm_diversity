@@ -31,6 +31,7 @@ library(tidyverse)
 library(janitor)
 library(cowplot)
 library(gridExtra)
+library(ggpubr)
 library(conflicted)
 ggplot2::theme_set(theme_cowplot())
 conflicts_prefer(dplyr::select)
@@ -46,7 +47,7 @@ load("Rdata/the_basics_11.21.24.Rdata")
 # load("Rdata/Manual_dig_2.20.24.Rdata")
 
 # Add habitat to point counts and pivot_wider to have single row per PC (there are still multiple rows for some PCs b/c there are multiple coordinates in some cases)
-BirdPCs_hab_sf <- BirdPCs %>%
+Bird_pcs_hab_sf <- Bird_pcs %>%
   distinct(
     Id_muestreo, Id_group, Departamento, Uniq_db,
     Id_gcs, Nombre_finca_mixed, Nombre_finca, Habitat_og,
@@ -66,7 +67,7 @@ endings <- 1:7
 endings_ <- c(paste0("_", 1:7))
 for (i in 1:length(endings)) {
   print(i)
-  PC_locsSf <- BirdPCs_hab_sf %>%
+  Pc_locs_sf <- Bird_pcs_hab_sf %>%
     unite(
       col = "Hab_UT_OG",
       ends_with(endings_[i]), sep = "_"
@@ -74,7 +75,7 @@ for (i in 1:length(endings)) {
     rename_with(~ paste0("Hab_UT_OG", endings[i]), Hab_UT_OG)
 }
 
-BirdPCs_hab_sf %>%
+Bird_pcs_hab_sf %>%
   distinct(Id_muestreo, Uniq_db) %>%
   nrow() - 54 # %>% count(Uniq_db)
 
@@ -90,7 +91,7 @@ sf_use_s2(TRUE) # Otherwise buffer_dists gives weird error about arc degrees
 
 # Function geobuffer_pts to make a geodesic buffer doesn't seem to work anymore in 2024. See github for previous versions of code as I've deleted several small things (including what is needed to make the st_union().
 
-cents_sv <- PC_locsSf %>% vect() %>% # sv = spatvector
+cents_sv <- Pc_locs_sf %>% vect() %>% # sv = spatvector
   project("epsg:4686")
 for (i in 1:length(buffer_dists)) {
   print(i)
@@ -162,12 +163,12 @@ map(names(files.exp.sf), \(name)
     ))
 
 # >Example farm figure ----------------------------------------------------
-BirdPCs %>%
+Bird_pcs %>%
   filter(Nombre_finca == "La herradura" | Id_gcs == 4121) %>%
   distinct(Id_gcs, Id_group, Nombre_finca, Nombre_finca_mixed, Latitud_decimal, Longitud_decimal)
 
 Ex <- buffers[[4]] %>% filter(Uniq_db == "GAICA MBD" & Id_group == "G-MB-M-LH")
-Ex_cents <- PC_locsSf %>% filter(Id_group == "G-MB-M-LH")
+Ex_cents <- Pc_locs_sf %>% filter(Id_group == "G-MB-M-LH")
 Ex500 <- Ex %>% st_union()
 Ex500 %>% ggplot() +
   geom_sf() +
@@ -177,7 +178,7 @@ Ex500 %>% ggplot() +
 
 # >Metadata files --------------------------------------------------------
 ## Create file w/ appropriate dates for extraction of Planet imagery for Seth
-PC_date2 %>%
+Pc_date4 %>%
   distinct(
     Id_muestreo, Nombre_institucion,
     Uniq_db, Departamento, Nombre_finca, Ano, Mes
@@ -193,7 +194,7 @@ PC_date2 %>%
 # write.xlsx("/Users/aaronskinner/Library/CloudStorage/OneDrive-UBC/Grad_School/PhD/Mentorship/Digitization_Mathilde/Digitization_Dep_month_year2.xlsx", row.names = F)
 
 ## Metadata file for Mathilde to fill out
-PC_date2 %>%
+Pc_date4 %>%
   mutate(Id_muestreo = str_split_i(Id_muestreo, "_", i = 1)) %>%
   group_by(Id_muestreo, Ano) %>%
   summarize(across(), Month.min = min(Mes), Month.max = max(Mes)) %>%
@@ -227,6 +228,7 @@ mutate(Closest_date = NA, Source_closest = NA, N.photos = NA, Notes = NA, Questi
 ## Goal:: Each point count needs landcover values in 300m radius that are temporally matched with when the point count was sampled
 path <- "../../Mentorship/Digitization_Mathilde/Final_docs"
 files.shp <- list.files(path = path, , pattern = "shapefile")
+files.shp <- files.shp[-2] # Remove old lc_middle file
 
 shp.lc.L <- map(.x = files.shp, \(shp)
                 vect(paste0(path, "/", shp)) %>%
@@ -450,39 +452,41 @@ map(shp.lc.L, \(shp){
 
 # >Overlapping polygons ----------------------------------------------------
 ## Mathilde says, 'In one shapefile, polygons cannot overlap, it is not something that Q allows you to do'. However, some polygons DO overlap.
-overlap_matrix <- map(shp.lc.L[c(2:4)], \(polys){
-  relate(polys, relation = "overlaps", pairs = TRUE)
-})
+# Create a safe version of the `relate()` function with `possibly`
+safe_relate <- possibly(
+  ~relate(.x, relation = "overlaps", pairs = TRUE),
+  otherwise = NULL,
+  quiet = FALSE
+)
 
-relate(shp.lc.L[[2]], relation = "overlaps", pairs = TRUE)
-
-# GPT
-
-library(terra)
-
-# Example SpatVector of polygons
-# polys <- your SpatVector data
+# Map over the input with safe_relate function
+overlap_matrix <- map(
+  shp.lc.L[c(2:4)], safe_relate, .progress = TRUE
+)
 
 # Problematic coordinates given in the error message
 problematic_coords <- matrix(c(
-  -73.793410454502194, 3.6727849683307507,
-  -75.07352327711844, 10.800882487507739
+  -73.793410454502194, 3.6727849683307507 #,
+  #-75.07352327711844, 10.800882487507739 # fixed
 ), ncol = 2, byrow = TRUE)
 problematic_points <- terra::vect(problematic_coords, type = "points", crs = crs(shp.lc.L[[2]]))
 
-
 # Find the polygon containing this point
 problematic_polygons <- terra::relate(shp.lc.L[[2]], problematic_points,
-                                      pairs = TRUE, relation = "intersects"
-) %>%
+                                      pairs = TRUE, relation = "intersects") %>%
   as_tibble()
 problematic_polygons2 <- c(problematic_polygons$id.x, problematic_polygons$id.y) %>% unique()
 
-problematic_polygons2 <- c(1087, 1100, 1102, 3089)
-names(problematic_polygons2) <- c(1087, 1100, 1102, 3089)
+# Manipulate problematic_polygons2 list if necessary? 
+#problematic_polygons2 <- c(1087, 1100, 1102, 3089)
+problematic_polygons2 <- setNames(problematic_polygons2, problematic_polygons2)
 
-# Note several of these do have very small areas & would be removed if small areas were removed
-shp.lc.L$landcovers_middle_shapefile %>%
+# Examine these polygons 
+shp.lc.L[[2]] %>% filter(poly_num %in% problematic_polygons2) %>% 
+  select(where(~ !all(is.na(.))))
+
+# NOTE:: Several of these do have very small areas & would be removed if small areas were removed
+shp.lc.L$landcovers_middle_shapefile_no_small_plg %>%
   filter(poly_num %in% problematic_polygons2) %>%
   pull(area)
 
@@ -499,11 +503,12 @@ prob_poly_plots <- imap(problematic_polygons2, \(prob_poly, names){
     labs(title = names) +
     theme_min
 })
-ggarrange(prob_poly_plots[[1]], prob_poly_plots[[2]], prob_poly_plots[[3]], prob_poly_plots[[4]])
+ggarrange(prob_poly_plots[[1]], prob_poly_plots[[2]])
+#ggarrange(prob_poly_plots[[1]], prob_poly_plots[[2]], prob_poly_plots[[3]], prob_poly_plots[[4]])
 
 # Plot problematic polygons
 shp.lc.L$landcovers_middle_shapefile %>%
-  filter(poly_num %in% c(1087, 1100, 1102)) %>%
+  filter(poly_num %in% problematic_polygons2) %>%
   ggplot() +
   geom_spatvector(aes(fill = factor(poly_num)), alpha = .5) +
   theme_min
@@ -514,10 +519,7 @@ map(relationships, \(relat){
   shp.lc.L[[2]] %>%
     filter(!poly_num %in% problematic_polygons2) %>%
     relate(relation = relat, pairs = TRUE)
-})
-
-
-
+}, .progress = TRUE)
 
 # Sort each row and remove duplicates
 overlap_indices <- map(overlap_matrix, \(om){
@@ -713,7 +715,7 @@ map(LCs_comb_l, \(polys){
 ggplot() +
   geom_spatvector(data = LCs_comb_l[[1]], aes(fill = lc_typ), alpha = .4) +
   geom_spatvector(data = union_ms$b100, alpha = .3) + # Add buffers
-  geom_sf(data = PC_locsSf, size = .5) + # Add centroids
+  geom_sf(data = Pc_locs_sf, size = .5) + # Add centroids
   coord_sf(xlim = c(-73.683, -73.666), ylim = c(3.323, 3.343))
 
 # ISSUE with middle_UBC file
@@ -721,7 +723,7 @@ ggplot() +
 ggplot() +
   geom_spatvector(data = LCs_comb_l[[2]], aes(fill = lc_typ), alpha = .4) +
   geom_spatvector(data = union_ms$b100, alpha = .3) + # Add buffers
-  geom_sf(data = PC_locsSf, size = .5) + # Add centroids
+  geom_sf(data = Pc_locs_sf, size = .5) + # Add centroids
   coord_sf(xlim = c(-73.683, -73.666), ylim = c(3.323, 3.343))
 
 # Difference in number of polygons & number of lc types
@@ -734,7 +736,7 @@ length(LCs_holes1$landcovers_middle_UBC_shapefile$lc_typ) # 437
 ggplot() +
   geom_spatvector(data = LCs_comb_l[[3]], aes(fill = lc_typ), alpha = .4) +
   geom_spatvector(data = union_ms$b100, alpha = .3) + # Add 50m radius buffers
-  geom_sf(data = PC_locsSf, size = .5) + # Add centroids
+  geom_sf(data = Pc_locs_sf, size = .5) + # Add centroids
   coord_sf(xlim = c(-73.683, -73.666), ylim = c(3.323, 3.343))
 
 
@@ -742,7 +744,7 @@ ggplot() +
 # See notes in notebook & at the top of script for ideas on how to do this
 buffers_ms$b300
 
-UBC_pts <- PC_locsSf %>% filter(Nombre_institucion == "UBC")
+UBC_pts <- Pc_locs_sf %>% filter(Nombre_institucion == "UBC")
 
 # Finca El Porvenir (both UniLlanos & I surveyed) have the data_year == 2019 but are not in the ‘middle_ubc’ file as well, or they don’t have data_year2 == 2022 (if there is no more recent imagery).
 map(LCs_comb_l[c(1, 2)], \(polys){
@@ -786,7 +788,7 @@ ggplot() +
     aes(fill = lc_typ), alpha = .4
   ) +
   geom_spatvector(data = buff, aes(color = Id_group), alpha = .3) #+ #Add buffers
-# geom_sf(data = PC_locsSf, size = .5) #+ #Add centroids
+# geom_sf(data = Pc_locs_sf, size = .5) #+ #Add centroids
 # coord_sf(xlim = c(extent[1], extent[2]), ylim = c(extent[3], extent[4]), expand = TRUE) #+
 # ggrepel::geom_text_repel(data = union_ms$b300, aes(label = Id_group))
 
