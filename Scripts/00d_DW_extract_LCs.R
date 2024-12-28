@@ -51,18 +51,18 @@ Bird_pcs_hab_sf <- Bird_pcs %>%
   distinct(
     Id_muestreo, Id_group, Departamento, Uniq_db,
     Id_gcs, Nombre_finca_mixed, Nombre_finca, Habitat_og,
-    Habitat_homologado_ut, Longitud_decimal, Latitud_decimal
+    Habitat_ut, Longitud_decimal, Latitud_decimal
   ) %>%
-  group_by(Id_muestreo) %>% # Habitat_og, Habitat_homologado_ut
+  group_by(Id_muestreo) %>% # Habitat_og, Habitat_ut
   mutate(Habitat = row_number()) %>% # Create numbers to add to columns
   pivot_wider(
     names_from = Habitat,
-    values_from = c(Habitat_homologado_ut, Habitat_og)
+    values_from = c(Habitat_ut, Habitat_og)
   ) %>%
   ungroup() %>%
   st_as_sf(coords = c("Longitud_decimal", "Latitud_decimal"), crs = 4326)
 
-# Combine Habitat_homologado_ut & Habitat_og into a single column with unite()
+# Combine Habitat_ut & Habitat_og into a single column with unite()
 endings <- 1:7
 endings_ <- c(paste0("_", 1:7))
 for (i in 1:length(endings)) {
