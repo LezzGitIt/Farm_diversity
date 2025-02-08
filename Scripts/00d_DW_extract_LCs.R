@@ -16,23 +16,22 @@
 # 6) Extract LC: Use buffers to extract the landcover polygons associated with each 
 # 7) landscapemetrics: Rasterize to then use landscapemetrics package
 
+## TO DO: See little journal
+# Something weird going on with image_date -- trace backwards to understand where date errors are coming from
+
 # Load libraries & data --------------------------------------------------------
-library(terra)
-library(tidyterra)
-library(sf)
-library(tidyverse)
-library(janitor)
-library(cowplot)
-library(xlsx)
-library(readxl)
-library(gridExtra)
-library(ggpubr)
-library(conflicted)
-library(landscapemetrics)
+pkgs <- c(
+  "terra", "tidyterra", "sf", "tidyverse", "janitor", "cowplot",
+  "xlsx", "readxl", "gridExtra", "ggpubr", "conflicted", "landscapemetrics"
+)
+
+# Load all packages
+lapply(pkgs, library, character.only = TRUE)
+
+# Set basic themes, bring in functions, & data
 ggplot2::theme_set(theme_cowplot())
 conflicts_prefer(dplyr::select)
 conflicts_prefer(dplyr::filter)
-
 source("/Users/aaronskinner/Library/CloudStorage/OneDrive-UBC/Grad_School/Rcookbook/Themes_funs.R")
 load("Rdata/the_basics_01.09.25.Rdata")
 
@@ -55,13 +54,17 @@ Buff_50m <- vect(paste0(path, "Buffers_50m/Buffers_50m.shp"))
 # Formatting LC dataframes
 shp.lc.L[c(2:4)] <- map(shp.lc.L[c(2:4)], \(polys){
   polys %>% mutate(
+    poly_num = row_number(),
     image_date = as.Date(image_date),
     img_date_yr = lubridate::years(image_date),
     trees_perc = as.numeric(trees_perc)
   )
 })
 
-# Prob polys: identify and remove ---------------------------------------------------------
+# Export with poly number for Natalia
+#shp.lc.L[[2]] %>% writeVector("../../Mentorship/Digitization_Mathilde/Final_docs/landcovers_middle_final_poly_num/landcovers_middle_final_poly_num.shp", overwrite = TRUE)
+
+# Prob polys: identify and remove--------------------------------------------------
 ## There are several polygons that are causing problems executing the script. Identify and remove for now until Mathilde / Natalia can fix 
 ## Remove invalid polygons identified in sf
 # For whatever reason sf is more strict than terra -- some polygons that are valid in terra, are not valid in sf
@@ -74,13 +77,7 @@ Tf_l <- map(shp.lc.L, \(shp){
   TF <- sf_shp2 %>% st_is_valid()
   return(TF)
 }) 
-valid_polys <- shp.lc.L[[2]][Tf_l[[2]], ] %>% mutate(poly_num = row_number())
-
-# Visualize the polygon that is still invalid after st_make_valid
-invalid <- shp.lc.L[[2]] %>% filter(poly_num %in% which(!Tf_l[[2]])) 
-ggplot() + 
-  geom_spatvector(data = invalid) + 
-  labs(title = "poly_num 3177")
+valid_polys <- shp.lc.L[[2]][Tf_l[[2]], ] #%>% mutate(poly_num = row_number())
 
 ## Relate still causes Topology exception
 #terra::relate(valid_polys, pairs = FALSE, relation = "overlaps")
@@ -112,36 +109,41 @@ ggplot() +
   theme_minimal() 
 
 ## REMOVE: Prob_polygon
-valid_polys2 <- valid_polys %>% filter(!poly_num %in% Prob_poly_id)
+valid_polys2 <- valid_polys #%>% filter(!poly_num %in% Prob_poly_id)
 
-# Formatting --------------------------------------------------------------
+# >Buffer -----------------------------------------------------------------
 ## Format linear features & individual trees
 # Add LC
 shp.lc.L[c(1, 5:7)] <- map2(
   shp.lc.L[c(1, 5:7)], c("distrees", rep("livefence", 3)),
-  \(lf, lc_typ){
-    lf %>% mutate(lc_typ = lc_typ)
+  \(lc, lc_typ){
+    lc %>% mutate(lc_typ = lc_typ)
   }
 )
 
-# Remove empty id column & set the trees percentage = 100
-shp.lc.L[[1]] <- shp.lc.L[[1]] %>%
-  select(-id) %>%
-  mutate(trees_perc = 100)
-
-# >Buffer -----------------------------------------------------------------
-# Buffer trees & live fences (lf) by appropriate distances.
+## Buffer trees & live fences (lf) by appropriate distances.
 # Discuss buffers with Mathilde - "S" for shrub should be 2m radius (NOT diameter), "T" should be 5m wide, and "F" should be ~Xm radius, indiv trees should be radius 5m at low elevation & 3m at high elevation? See Mathilde's metadata file
 # STILL NEED TO DIFFERENTIATE BUFFER SIZE BY TREE_SHRUB COLUMN
 trees_lf_buff <- pmap(
   .l = list(shp.lc.L[c(1, 5:7)], buf.rad = c(4, 5, 5, 5)), # Buffer radii
-  .f = \(shpL, buf.rad) buffer(shpL, buf.rad)
+  .f = \(shpL, buf.rad) buffer(shpL, buf.rad) %>% 
+    select(-contains("tree_shrub"))
 )
 
+# Merge polygons so there are no weird overlaps within a shapefile
+t_lf_agg <- map(trees_lf_buff, \(t_lf){
+  aggregate(t_lf, by = "lc_typ", dissolve = TRUE) %>% #  by = names(t_lf)
+    select(-agg_n)
+})
+
+# Remove empty id column & set the trees percentage = 100
+t_lf_agg[[1]] <- t_lf_agg[[1]] %>%
+  select(-mean_id) %>%
+  mutate(trees_perc = 100)
 
 # Erase -------------------------------------------------------------------
 # After buffering there may still be overlap between individual trees & live fences, but there shouldn't be. Cut out live fences using the individual trees polygons
-trees_lf_buff[2:4] <- map2(trees_lf_buff[2:4], trees_lf_buff[1], \(lfs, trees){
+trees_lf_buff[2:4] <- map2(t_lf_agg[2:4], t_lf_agg[1], \(lfs, trees){
   terra::erase(lfs, trees)
 })
 
@@ -155,7 +157,12 @@ length(Lc_holes1$poly_num)
 
 # Remove the 5 polygons that are lost during erase
 miss_ids <- setdiff(valid_polys2$poly_num, Lc_holes1$poly_num) 
+miss_ids <- setNames(miss_ids, miss_ids)
 Lc_holes2 <- Lc_holes1 %>% filter(!poly_num %in% miss_ids)
+
+# NOTE:: Don't really understand why removing 1 polygon solves the issue with the difference in lengths for Lc_holes1 (difference of 4)
+nrow(Lc_holes2)
+length(Lc_holes2$poly_num)
 
 # Erase the individual trees
 Lc_holes3 <- erase(Lc_holes2, trees_lf_buff[[1]])
@@ -166,10 +173,11 @@ Lcs_comb <- rbind(Lc_holes3, trees_lf_buff[[2]], trees_lf_buff[[1]])
 unique(Lcs_comb$lc_typ)
 
 Lcs_comb2 <- Lcs_comb %>% mutate(lc_typ2 = case_when(
-  lc_typ %in% c("bareground", "crops", "water", "shrub", "devland") ~ "other",
+  lc_typ %in% c("bareground", "crop", "crops", "water", "shrub", "devland") ~ "other",
   lc_typ %in% c("distrees", "forbanks", "silvopast", "livefence") ~ "ssp",
   .default = lc_typ
 ))
+
 
 # Visualize an example buffer
 ggplot() +
@@ -182,7 +190,7 @@ ggplot() +
 # Visualize polygons that are lost in the 
 if(FALSE){
   miss_id_plots <- imap(miss_ids, \(id, name){
-    miss_poly <- valid_polys %>% filter(poly_num == id)
+    miss_poly <- valid_polys2 %>% filter(poly_num == id)
     ggplot() + 
       geom_spatvector(data = miss_poly) + 
       labs(title = name) + 
@@ -208,66 +216,142 @@ cropped_lcs <- Lcs_comb2 %>% terra::intersect(Buffers$`300`) %>%
   project("EPSG:3116") %>%
   mutate(poly_num = row_number())
 
-# landscapemetrics --------------------------------------------------------
-# >Rasterize --------------------------------------------------------------
+# LANDSCAPEMETRICS --------------------------------------------------------
+# Rasterize --------------------------------------------------------------
+
 # Rasterize ensuring landcover is the value of each cell
-# I think using the 300m buffers is better, and maybe one at a time if needed for speed
 rast <- cropped_lcs %>%  #Lcs_sub
-  rast(resolution  = 2)
+  rast(resolution = 1)
 
-# Rasterize
-terraOptions(threads = 4) #About 42 mins
-if(FALSE){
-  start <- Sys.time()
-  Lc_rast <- terra::rasterize(cropped_lcs, rast, field = "lc_typ2") # Lcs_sub
-  Sys.time() - start
-}
+# Generate a list with each Id_muestreo 
+Lcs_id_muestreo <- cropped_lcs %>% terra::split("Id_muestreo")
+
+# Create extent with desired resolution
+rast_l <- map(Lcs_id_muestreo, \(polys_group){
+  polys_group %>% rast(resolution = 2)
+})
+
+# Rasterize polygons -- very quick 
+Lc_rast_l <- map2(Lcs_id_muestreo, rast_l, \(polys_id, rast) {
+  Lc_rast <- terra::rasterize(polys_id, rast, field = "lc_typ2") # Lcs_sub
+})
+
 # Ultimately don't need to save the 1.5 GB large landcover raster once lsm are finalized
-Lc_rast <- rast("Derived_geospatial/tif/Landcovers_mathilde_2m.tif")
+# Lc_rast <- rast("Derived_geospatial/tif/Landcovers_mathilde_2m.tif")
 
-# >Calc metrics ------------------------------------------------------------
-# OPTION 1 - Use built in lsm function 
-# Provides convenient % inside column
-if(FALSE){
-  # About 10 minutes
-  Lsm_df <- map(Buffer_rad_nmr, \(rad){
-    sample_lsm(Lc_rast, y = Pc_vect_proj, 
-               shape = "circle", size = rad, 
-               plot_id = Pc_vect_proj$Id_muestreo,
-               what = c("lsm_c_pland", "lsm_c_te"),
-               #level = "landscape", type = "diversity metric",
-               return_raster = TRUE)
-  }) %>% list_rbind(names_to = "Buffer_rad") %>% 
-    mutate(Buffer_rad = as.numeric(Buffer_rad))
 
-  ## Create tbl to map lc_typ onto classes 
-  # Take a single plot with all classes present
-  Sing_plot <- Lsm_df %>% 
-    filter(plot_id == "G-MB-Q-PORT_01" & Buffer_rad == 300) %>%
-    pull(raster_sample_plots) %>% 
-    .[[1]]
-  map_class <- tibble(
-    lc_typ = terra::unique(Sing_plot$lc_typ2)[[1]],
-    class = 0:3 # Adjust if needed
+# join_lc_class ---------------------------------------------------------------
+
+# Extract 
+uniq_classes <- get_unique_values(Lc_rast_l)
+
+over4 <- keep(uniq_classes, ~ .x %>% length() > 4)
+under4 <- keep(uniq_classes, ~ .x %>% length() < 4)
+not4 <- keep(uniq_classes, ~ .x %>% length() != 4)
+is4 <- keep(uniq_classes, ~ .x %>% length() == 4)
+
+# Turn numeric for subsetting
+is4_i <- str_split_i(names(is4), "_", 2) %>% as.numeric()
+not4_i <- str_split_i(names(not4), "_", 2) %>% as.numeric()
+
+## Create tbl to map lc_typ onto classes 
+# Select any point count with all landcover types
+head(is4_i) # Many to choose from
+
+join_lc_class_all <- tibble(
+  lc_typ2 = terra::unique(Sing_plot$lc_typ2)[[1]],
+  class = 0:3 # Adjust if needed
+)
+
+# There are several point counts that have < 4 landcover classes present.
+join_lc_class <- map2(Lc_rast_l, uniq_classes, \(rast, class) {
+  if(length(class) != 4){
+    lc_typ2 <- rast$lc_typ2 %>% unique()
+    tibble(lc_typ2) %>% 
+      mutate(class = row_number()-1) %>% 
+      right_join(tibble(class)) # This adds NA where length(class) == 5
+  } else{
+    join_lc_class_all
+  }
+}) %>% list_rbind(names_to = "Id_muestreo") %>% 
+  # Replace NA with empty
+  mutate(lc_typ2 = ifelse(is.na(lc_typ2), "empty", lc_typ2)) 
+
+
+# Visualize rasters -------------------------------------------------------
+
+## Visualize buffers if helpful (e.g. polygons with raster cells == NA)
+# NOTE:: All Id_groups will show NAs due to the raster cells OUTSIDE of landcovers
+ggplot() +
+  geom_spatraster(data = Lc_rast_l$`C-MB-B-LM_04`) # 30, 37
+
+# NOTE:: G-MB-M-EPO1 is error with coordinates that still needs to be fixed 
+plots_u4 <- imap(Lc_rast_l[not4_i[1:3]], \(rast, group){
+  ggplot() +
+    geom_spatraster(data = rast) +
+    labs(title = group)
+})
+#plots_u4
+
+
+# Calc metrics ------------------------------------------------------------
+# Calculate lsm using Landscapemetrics package
+
+Pc_cents <- Pc_vect_proj %>% filter(!Id_muestreo %in% paste0("OQ_0", 7:9)) %>%
+  terra::split("Id_muestreo")
+
+Lc_test <- Lc_rast_l[c(1:50)]
+Pc_test <- Pc_cents[c(1:50)]
+
+# Generate lsm for all items in these lists
+start <- Sys.time()
+Lsm_l <- map2(Lc_rast_l, Pc_cents, \(raster, points) {
+  scale_sample(
+    landscape = raster, 
+    y = points, 
+    what = c("lsm_c_pland", "lsm_c_te"), 
+    shape = "circle", 
+    size = Buffer_rad_nmr
   )
-  
-  # Merge with map_class
-  Lsm_df_rast <- Lsm_df %>% left_join(map_class) %>% 
-    rename(Id_muestreo = plot_id) %>% 
-    mutate(across(where(is.numeric), \(col) round(col, 2))) %>%
-    select(-c(id)) # What is id?
-}
+}, .progress = TRUE)
+Sys.time() - start
+
+# Rbind our lsm list, format, and join with join_lc_class for lc_typ
+Lsm_df <- Lsm_l %>% list_rbind(names_to = "Id_muestreo") %>% 
+  rename(buffer = size) %>% 
+  select(-c(plot_id, id, layer)) %>% 
+  left_join(join_lc_class)
+
+# Inspect Lsm_df ----------------------------------------------------------
+# Should be no NAs if merge worked appropriately
+Lsm_df %>% filter(is.na(lc_typ2))
 
 # Instead of recalculating (slow), load in lsm file
-Lsm_df2 <- read_xlsx("Derived/Excels/Lsm_df_01.20.25.xlsx")
+#Lsm_df2 <- read_xlsx("Derived/Excels/Lsm_df_01.20.25.xlsx")
 
-# # NOTE:: There are 'percentage_inside' over 100 and under 90?! 
-To_digitize <- Lsm_df2 %>% filter(percentage_inside < 90) %>% #> 100
-  arrange(desc(percentage_inside)) %>% 
-  distinct(Id_muestreo, Buffer_rad, percentage_inside) %>% 
-  #filter(str_detect(Id_muestreo, "\\(1\\)|OQ")) %>% 
-  arrange(Id_muestreo, Buffer_rad)
+## NOTE:: There are 'percentage_inside' over 100 and under 90?! 
+To_digitize <- Lsm_df %>% filter(percentage_inside < 99.8) %>% #> 100
+  summarize(min_percent_inside = min(percentage_inside), .by = Id_muestreo) %>%
+  arrange(min_percent_inside) #%>%
+  #filter(str_detect(Id_muestreo, "\\(1\\)|OQ")) 
 To_digitize
+
+over100 <- Lsm_df %>% filter(percentage_inside > 100) %>% 
+  summarize(max_percent_inside = max(percentage_inside), .by = Id_muestreo) %>%
+  arrange(desc(max_percent_inside))
+over100 # All CIPAV farms
+
+# Correlations ------------------------------------------------------------
+
+corr_l <- map(Lsm_l, \(lsm_tbl){
+  lsm_tbl %>% filter(size == 300) %>%
+    calculate_correlation(simplify = TRUE)
+}) 
+corr_df <- corr_l %>% list_rbind(names_to = "Id_muestreo") %>% 
+  filter(metric_1 != metric_2) %>% 
+  arrange(value)
+
+# show_lsm() #Show landscape metrics on patch level printed in their corresponding patch.
 
 # Save and export ---------------------------------------------------------
 # Export files to digitize for Natalia
