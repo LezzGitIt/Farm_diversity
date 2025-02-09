@@ -21,7 +21,7 @@
 
 # Load libraries & data --------------------------------------------------------
 pkgs <- c(
-  "terra", "tidyterra", "sf", "tidyverse", "janitor", "cowplot",
+  "terra", "tidyterra", "sf", "tidyverse", "janitor", "cowplot", "maptiles",
   "xlsx", "readxl", "gridExtra", "ggpubr", "conflicted", "landscapemetrics"
 )
 
@@ -216,6 +216,7 @@ cropped_lcs <- Lcs_comb2 %>% terra::intersect(Buffers$`300`) %>%
   project("EPSG:3116") %>%
   mutate(poly_num = row_number())
 
+
 # LANDSCAPEMETRICS --------------------------------------------------------
 # Rasterize --------------------------------------------------------------
 
@@ -236,10 +237,6 @@ Lc_rast_l <- map2(Lcs_id_muestreo, rast_l, \(polys_id, rast) {
   Lc_rast <- terra::rasterize(polys_id, rast, field = "lc_typ2") # Lcs_sub
 })
 
-# Ultimately don't need to save the 1.5 GB large landcover raster once lsm are finalized
-# Lc_rast <- rast("Derived_geospatial/tif/Landcovers_mathilde_2m.tif")
-
-
 # join_lc_class ---------------------------------------------------------------
 
 # Extract 
@@ -259,7 +256,7 @@ not4_i <- str_split_i(names(not4), "_", 2) %>% as.numeric()
 head(is4_i) # Many to choose from
 
 join_lc_class_all <- tibble(
-  lc_typ2 = terra::unique(Sing_plot$lc_typ2)[[1]],
+  lc_typ2 = terra::unique(Lc_rast_l[[1]]$lc_typ2)[[1]],
   class = 0:3 # Adjust if needed
 )
 
@@ -277,7 +274,6 @@ join_lc_class <- map2(Lc_rast_l, uniq_classes, \(rast, class) {
   # Replace NA with empty
   mutate(lc_typ2 = ifelse(is.na(lc_typ2), "empty", lc_typ2)) 
 
-
 # Visualize rasters -------------------------------------------------------
 
 ## Visualize buffers if helpful (e.g. polygons with raster cells == NA)
@@ -293,15 +289,21 @@ plots_u4 <- imap(Lc_rast_l[not4_i[1:3]], \(rast, group){
 })
 #plots_u4
 
+# Visualize with satellite imagery 
+sat_bg <- get_tiles(Lc_rast_l[[1]], crop = TRUE, provider = "Esri.WorldImagery")
+plot_tiles(sat_bg) 
+plot(Lc_rast_l[[1]], add = TRUE, alpha = .5)
+
+# Functions that could be helpful for exploration
+#zoom(new = FALSE)
+#draw(x = "points")
+#click(id = TRUE)
 
 # Calc metrics ------------------------------------------------------------
-# Calculate lsm using Landscapemetrics package
 
+# Calculate lsm using Landscapemetrics package
 Pc_cents <- Pc_vect_proj %>% filter(!Id_muestreo %in% paste0("OQ_0", 7:9)) %>%
   terra::split("Id_muestreo")
-
-Lc_test <- Lc_rast_l[c(1:50)]
-Pc_test <- Pc_cents[c(1:50)]
 
 # Generate lsm for all items in these lists
 start <- Sys.time()
@@ -322,27 +324,54 @@ Lsm_df <- Lsm_l %>% list_rbind(names_to = "Id_muestreo") %>%
   select(-c(plot_id, id, layer)) %>% 
   left_join(join_lc_class)
 
-# Inspect Lsm_df ----------------------------------------------------------
 # Should be no NAs if merge worked appropriately
 Lsm_df %>% filter(is.na(lc_typ2))
 
-# Instead of recalculating (slow), load in lsm file
-#Lsm_df2 <- read_xlsx("Derived/Excels/Lsm_df_01.20.25.xlsx")
+# Inspect Lsm_df ----------------------------------------------------------
 
-## NOTE:: There are 'percentage_inside' over 100 and under 90?! 
-To_digitize <- Lsm_df %>% filter(percentage_inside < 99.8) %>% #> 100
-  summarize(min_percent_inside = min(percentage_inside), .by = Id_muestreo) %>%
-  arrange(min_percent_inside) #%>%
-  #filter(str_detect(Id_muestreo, "\\(1\\)|OQ")) 
+# Instead of recalculating (slow), load in lsm file
+#Lsm_df <- read_xlsx("Derived/Excels/Lsm/Lsm_df_02.08.25.xlsx")
+
+## NOTE:: There are 'percentage_inside' over 100 and under 90. Generate 1 row per Id_muestreo to handle more easily 
+To_digitize <- Lsm_df %>% filter(percentage_inside < 100) %>% #> 100
+  summarize(percent_inside = min(percentage_inside), .by = Id_muestreo) %>%
+  mutate(sum_fun = "min") %>%
+  arrange(percent_inside) #%>%
+#filter(str_detect(Id_muestreo, "\\(1\\)|OQ")) 
 To_digitize
 
-over100 <- Lsm_df %>% filter(percentage_inside > 100) %>% 
-  summarize(max_percent_inside = max(percentage_inside), .by = Id_muestreo) %>%
-  arrange(desc(max_percent_inside))
-over100 # All CIPAV farms
+over100 <- Lsm_df %>% filter(percentage_inside >= 104.7) %>% 
+  summarize(percent_inside = max(percentage_inside), .by = Id_muestreo) %>%
+  mutate(sum_fun = "max") %>% 
+  arrange(desc(percent_inside))
+over100 
+
+# Create dataframe of ids that are problematic due to percentage inside (pi)
+prob_pi_ids <- rbind(To_digitize, over104) %>% 
+  mutate(across(where(is_double), ~ round(.x, 2)))
+
+# Plot problematic pc buffers ------------------------------------------------
+
+# Plot, using pmap to iterate over dataframe in rowwise fashion
+prob_pi_plots <- pmap(prob_pi_ids[,1:2], \(Id_muestreo, percent_inside) {
+  ggplot() +
+    geom_spatraster(data = Lc_rast_l[[Id_muestreo]]) + 
+    labs(subtitle = Id_muestreo, 
+         caption = paste("Percent Inside:", percent_inside)) +
+    theme_min + 
+    theme(legend.position = "none")
+})
+# Visualize example
+prob_pi_plots[[2]]
+
+## Print PDF file with 9 plots per page
+pdf("Figures/Prob_polys/Polygons_percent_inside.pdf")
+print(marrangeGrob(grobs = prob_pi_plots, ncol = 3, nrow = 3, 
+                   layout_matrix = matrix(1:9, 3, 3, TRUE)))
+dev.off()
 
 # Correlations ------------------------------------------------------------
-
+# Not sure exactly what this is doing, may be easier to just use cor()
 corr_l <- map(Lsm_l, \(lsm_tbl){
   lsm_tbl %>% filter(size == 300) %>%
     calculate_correlation(simplify = TRUE)
@@ -354,110 +383,23 @@ corr_df <- corr_l %>% list_rbind(names_to = "Id_muestreo") %>%
 # show_lsm() #Show landscape metrics on patch level printed in their corresponding patch.
 
 # Save and export ---------------------------------------------------------
-# Export files to digitize for Natalia
+# Export centroids of point counts still to be digitized for Natalia
 To_digitize %>% left_join(Pc_locs_sf) %>%
   slice_max(Buffer_rad) %>%
   filter(Id_muestreo != "OQ_Practica") #%>% 
-#st_write("Derived_geospatial/shp/To_digitize/To_digitize.shp")
+#st_write("Derived_geospatial/shp/To_digitize_natalia/To_digitize.shp")
 
 # Export Excel of lsm
-Lsm_df_rast %>% select(-raster_sample_plots) %>%
-  as.data.frame() %>%
-if(FALSE){
+Lsm_df %>% as.data.frame() %>%
+  #if(FALSE){
   write.xlsx(
-    file = paste0("Derived/Excels/Lsm_df_", format(Sys.Date(), "%m.%d.%y"), ".xlsx"), 
-                  showNA = FALSE, row.names = FALSE
-    )
-}
-
-## Export landcover shapefiles for Diana Laura 
-cropped_lcs %>% 
-  select(Ecoregion, Departamento, lc_typ, trees_perc, image_date, alt_source) #%>%
-  #terra::writeVector("Derived_geospatial/Diana_laura_digitization/Training_polygons/Training_polygons.shp")
-
-## Export rasters of buffer sizes
-# Create dataframe to contain plots
-Lsm_rast_buffs <- Lsm_df_rast %>%
-  group_by(Id_muestreo, Buffer_rad) %>%
-  slice(1) %>% # Take the first row for each group
-  ungroup() %>%
-  rename(Plots = raster_sample_plots) %>% 
-  select(Id_muestreo, Buffer_rad, Plots, percentage_inside)
-
-# Export rasters: 1 folder per Id_muestreo, 6 buffer sizes per folder 
-path <- "Derived_geospatial/tif/Id_buffers_tifs/"
-Lsm_rast_export <- Lsm_rast_buffs %>% 
-  mutate(
-    dir_path = paste0(path, Id_muestreo), # Create directory path
-    filename = paste0(dir_path, "/Landcover_", Id_muestreo, "_buff", Buffer_rad, ".tif") 
-  ) %>% arrange(Id_muestreo, Buffer_rad)
-Lsm_rast_export %>% rowwise() %>% 
-  group_split() %>% 
-  purrr::walk(function(row) {
-    if (!dir.exists(row$dir_path)) {
-      dir.create(row$dir_path, recursive = TRUE, showWarnings = FALSE)
-      writeRaster(row$Plots[[1]], filename = row$filename, overwrite = FALSE)
-  }})
-
-# Import rasters ------------------------------------------------------------
-## If you want to do any visualization or additional calculation of metrics, can bring rasters back in
-# Create a nested list with ID at top level and buffer size as next level
-path <- "Derived_geospatial/tif/Id_buffers_tifs/"
-Ids_files <- list.files(path = path, full.names = FALSE)
-Lc_rast_l <- map(Ids_files, function(id) {
-  # Get the files for this ID
-  buffer_files <- list.files(
-    path = file.path(path, id), 
-    pattern = "\\.tif$", 
-    full.names = TRUE
+    file = paste0("Derived/Excels/Lsm/Lsm_df_", format(Sys.Date(), "%m.%d.%y"), ".xlsx"), 
+    showNA = FALSE, row.names = FALSE
   )
-  
-  # Extract buffer sizes from filenames and sort them
-  buffer_sizes <- str_extract(buffer_files, "(?<=_buff)\\d+(?=\\.tif$)") %>% as.numeric()
-  sorted_files <- buffer_files[order(buffer_sizes)]
-  
-  rasters <- map(sorted_files, ~ terra::rast(.x))
-  
-  # Name each raster by its buffer size extracted from the filename
-  names(rasters) <- str_extract(buffer_files, "(?<=_buff)\\d+(?=\\.tif$)")
-  return(rasters)
-})
-names(Lc_rast_l) <- Ids_files
-
-# Ensure that landscapes pass the check 
-#check_landscape(Lc_rast_l)
-
-# Visualize some examples
-map(Lc_rast_l$`C-MB-A-ED_03`, \(sr){ #sr = spatraster
-    plot(sr, main = dim(sr))
-  }) 
+#}
 
 # Extras -----------------------------------------------------------------
 # >Working ----------------------------------------------------------------
-
-# >Interactive tmap -------------------------------------------------------
-library(tmap)
-library(tmaptools)
-
-# Ensure that shp_test and trees_lf_buff[[2]] are SpatVectors
-# Convert to sf for better compatibility with tmap (optional)
-shp_test_sf <- sf::st_as_sf(shp_test) %>% st_make_valid()
-trees_sf <- sf::st_as_sf(trees_lf_buff[[2]])
-
-TF <- shp_test_sf %>% 
-  st_is_valid()
-shp_test_sf <- shp_test_sf[TF,]
-
-# Create an interactive map
-tmap_mode("view")  # Switch to interactive mode
-
-shp_test_sf %>% filter()
-tm_shape() +
-  tm_polygons(col = "blue", alpha = 0.5, border.alpha = 0.7) +
-  #tm_shape(trees_sf) +
-  #tm_borders(col = "red", lwd = 2, alpha = 0.8) +
-  tm_layout(title = "Interactive Map of Problematic Areas",
-            legend.outside = TRUE)
 
 # >Invalid polygons  -------------------------------------------------------
 # NOTE:: There are 45 polygons that are invalid by sf standards. These don't seem to influence the workflow at present but important to keep in mind if things start to go wrong. 
