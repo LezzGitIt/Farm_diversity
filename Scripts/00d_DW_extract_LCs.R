@@ -40,19 +40,19 @@ conflicts_prefer(dplyr::select)
 conflicts_prefer(dplyr::filter)
 conflicted::conflicts_prefer(terra::intersect)
 source("/Users/aaronskinner/Library/CloudStorage/OneDrive-UBC/Grad_School/Rcookbook/Themes_funs.R")
-load("Rdata/the_basics_02.27.25.Rdata")
+load("Rdata/the_basics_05.10.25.Rdata")
 
 # Which shapefile?  -------------------------------------------------------
 # This determines which file is processed & ultimately exported 
-tbl_row <- 2 # 1 = middle, 2 = past, 3 = ubc
+tbl_row <- 1 # 1 = middle, 2 = past, 3 = ubc
 
 # Create Index_tbl
 Uniq_db <- unique(Bird_pcs$Uniq_db)
-Index_tbl <- tibble(name = c("middle", "past", "ubc"), index = c(2,3,4), data_collector = list(Uniq_db[c(1:3,6)], c("Gaica mbd", "Cipav mbd"), "Ubc mbd"))
+Index_tbl <- tibble(name = c("middle", "past", "ubc"), index = c(2,3,4), data_collector = list(Uniq_db[c(1:4,6)], c("Gaica mbd", "Cipav mbd"), "Ubc mbd"))
 
 # Bring in data -----------------------------------------------------------
 #Mathilde shapefiles
-path <- "../../Mentorship/Digitization_Mathilde/Final_docs/final_shp_for_natalia"
+path <- "../../Mentorship/Digitization_Mathilde/Final_docs/final_shp_for_natalia/5.7.25"
 files.shp <- list.files(path = path, pattern = "final") #, recursive = TRUE)
 #files.shp <- files.shp[-2] # Remove old lc_middle file
 
@@ -216,7 +216,6 @@ Snapped_lcs <- Snapped_lcs_l %>% vect()
 
 # Export ------------------------------------------------------------------
 ## Export cropped landcover shapefile - The polygons that mathilde digitized that have been processed in this R script
-
 Snapped_lcs %>% 
   terra::writeVector(paste0("Derived_geospatial/shp/R_processed/Snapped_", Index_tbl[[tbl_row, "name"]], ".gpkg"), overwrite = TRUE) #, overwrite = TRUE
 stop()
