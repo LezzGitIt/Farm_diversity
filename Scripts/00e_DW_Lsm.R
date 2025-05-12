@@ -37,21 +37,12 @@ conflicts_prefer(dplyr::filter)
 source("/Users/aaronskinner/Library/CloudStorage/OneDrive-UBC/Grad_School/Rcookbook/Themes_funs.R")
 
 # Load data
-load("Rdata/the_basics_02.27.25.Rdata")
+load("Rdata/the_basics_05.10.25.Rdata")
 
 # Which shapefile?  --------------------------------------------------------
-file_name <- "past" # middle, ubc, past
+file_name <- "middle" # middle, past, ubc
 
 Snapped_lcs <- vect(paste0("Derived_geospatial/shp/R_processed/Snapped_", file_name, ".gpkg"))
-
-# Still to do -------------------------------------------------------------
-Metadata <- Snapped_lcs %>% data.frame()
-# Many polygons have image date of 1970-01-01
-Metadata %>% tabyl(image_date)
-Metadata %>% filter(image_date == lubridate::as_date("1970-01-01")) %>% 
-  tabyl(lc_typ) 
-
-## CLEAN UP FILES 
 
 # Correct a mistake ---------------------------------------------------------
 if(file_name == "past"){
@@ -83,13 +74,8 @@ Lc_rast_l <- map2(Lcs_id_muestreo, rast_l, \(polys_id, rast) {
 #})
 
 # join_lc_class ---------------------------------------------------------------
-
 # Extract 
 uniq_classes <- get_unique_values(Lc_rast_l)
-
-map(Lc_rast_l[c(15:17)], \(rast){
-  ggplot() + geom_spatraster(data = rast)
-})
 
 over4 <- keep(uniq_classes, ~ .x %>% length() > 4)
 under4 <- keep(uniq_classes, ~ .x %>% length() < 4)
@@ -109,19 +95,47 @@ join_lc_class_all <- tibble(
   class = 0:3 # Adjust if needed
 )
 
+# TEST
+rast <- Lc_rast_l$`G-MB-A-ET_06`
+Lc_rast_l[24]
+uniq_classes
+
+map(uniq_classes, length)
+keep(uniq_classes, ~length(.x) >4)
+?keep
+
+## Working
+join_lc_class <- map2(Lc_rast_l, uniq_classes, \(rast, class) {
+    lc_typ2 <- rast$lc_typ2 %>% unique()
+    bind_cols(lc_typ2, tibble(class))
+  }) %>% list_rbind(names_to = "Id_muestreo")
+
+if(FALSE){
+## OLD, saved 
 # There are several point counts that have < 4 landcover classes present.
 join_lc_class <- map2(Lc_rast_l, uniq_classes, \(rast, class) {
   if(length(class) != 4){
     lc_typ2 <- rast$lc_typ2 %>% unique()
     tibble(lc_typ2) %>% 
       mutate(class = row_number()-1) %>% 
-      right_join(tibble(class)) # This adds NA where length(class) == 5
+      full_join(tibble(class)) # This adds NA where length(class) == 5
   } else{
     join_lc_class_all
   }
 }) %>% list_rbind(names_to = "Id_muestreo") %>% 
   # Replace NA with empty
   mutate(lc_typ2 = ifelse(is.na(lc_typ2), "empty", lc_typ2)) 
+join_lc_class %>% filter(lc_typ2 == "empty")
+
+Snapped_lcs %>% filter(Id_muestreo == "G-MB-A-ET_06") %>% 
+  ggplot() +
+  geom_spatvector(aes(fill = lc_typ2))
+
+  ggplot() +
+  geom_spatraster(data = Lc_rast_l$`G-MB-A-ET_06`) #aes(fill = lc_typ2
+  
+  join_lc_class %>% filter(Id_muestreo == "G-MB-A-ET_06")
+} # DELETE
 
 # Visualize rasters -------------------------------------------------------
 ## Visualize buffers if helpful (e.g. polygons with raster cells == NA)
@@ -161,9 +175,10 @@ Pc_vect_proj <- Pc_vect %>% project("EPSG:3116")
 Pc_cents <- Pc_vect_proj %>%
   terra::split("Id_muestreo")
 
-Buffer_rad_nmr <- seq(from = 300, to = 50, by = -50)
+Buffer_rad_nmr <- c(seq(from = 300, to = 50, by = -50), 25)
 Buffer_rad_nmr <- setNames(Buffer_rad_nmr, Buffer_rad_nmr)
 # Generate lsm for all points / rasterized polys in these lists
+#if(FALSE){
 start <- Sys.time()
 safe_scale_sample <- safely(scale_sample)
 Lsm_l_safe <- map2(Lc_rast_l, Pc_cents, \(raster, points) {
@@ -176,6 +191,7 @@ Lsm_l_safe <- map2(Lc_rast_l, Pc_cents, \(raster, points) {
   )
 }, .progress = TRUE)
 Sys.time() - start
+#}
 
 # Extract results & errors, identify problematic points 
 Lsm_l <- map(Lsm_l_safe, ~ .x$result) %>% 
@@ -194,7 +210,7 @@ Lsm_df_long <- Lsm_l %>% list_rbind(names_to = "Id_muestreo") %>%
 # Should be no PLAND NAs if merge worked appropriately.
 Lsm_df_long %>% filter(is.na(lc_typ2) & metric != "te")
 
-# Percent_inside inspection------------------------------------------------------
+# Percent_inside inspection---------------------------------------------------
 ## NOTE:: There are 'percentage_inside' (pi) over 100 and under 98. Generate 1 row per Id_muestreo to handle more easily 
 Low_pi <- Lsm_df_long %>% filter(percentage_inside < 100) %>% #> 100
   summarize(percent_inside = min(percentage_inside), .by = Id_muestreo) %>%
@@ -261,11 +277,12 @@ Lsm_te <- Lsm_df_long %>% filter(metric == "te") %>%
 # Join tibbles - 484 rows
 Lsm_df <- Lsm_pland %>% full_join(Lsm_te) %>% 
   select(-metric) %>% 
-  mutate(across(where(is.numeric), ~ round(.x, 2)))
+  mutate(across(where(is.numeric), ~ round(.x, 2))) %>% 
+  arrange(Id_muestreo, buffer)
 
 # Date_year manual --------------------------------------------------------
 ## Make manual changes to data_year in ubc & past files. 
-# The idea was to have the data_year column specify which point counts a set of polygons correspond to (& it could be multiple polygons, hence 'data_year2' & columns). Unfortunately, there were errors in Mathilde's metadata, so we forego correcting the 'middle'shapefile, & instead focus on the past & ubc files, which we use to overwrite the middle file in the correct locations.
+# The idea was to have the data_year column specify which point counts a set of polygons correspond to (& it could be multiple polygons, hence 'data_year2' & columns). Unfortunately, there were errors in Mathilde's metadata, so we forego correcting the 'middle' shapefile, & instead focus on the past & ubc files, which we use to overwrite the middle file in the correct locations.
 if(file_name == "past"){
   Lsm_df <- Lsm_df %>% mutate(
     data_year = 2013, # General
@@ -278,8 +295,50 @@ if(file_name == "ubc"){
   Lsm_df <- Lsm_df %>% mutate(data_year = 2022)
 }
 
-# Save and export ---------------------------------------------------------
+
+# Calculate distance to forest --------------------------------------------
+if(file_name == "middle"){
+forest <- Snapped_lcs %>% filter(lc_typ2 == "forest")
+
+# Identify closest forest within 300m
+Ids <- Pc_vect_proj$Id_muestreo
+Ids <- setNames(Ids, Ids)
+Min_dist_forest <- map(Ids, \(id) {
+  # Subset 
+  forest_id <- forest[forest$Id_muestreo == id, ] %>% 
+    makeValid() %>%
+    terra::aggregate()
+  Pc_cent_id <- Pc_vect_proj[Pc_vect_proj$Id_muestreo == id, ]
+  
+  # If no forest, return NA
+  if (nrow(forest_id) == 0){
+    return(tibble(In_forest = NA_real_, Dist_to_edge = NA_real_))
+  } 
+  
+  # If there are forest polygons, first determine if point count centroid is within a forest polygon 
+  In_forest <- any(relate(
+    x = forest_id, y =  Pc_cent_id, relation = "contains")
+    )
+  # Calculate distance to each forest polygon & take the minimum 
+  dists_edge <- terra::distance(Pc_cent_id, as.lines(forest_id))
+  tibble(In_forest, Dist_to_edge = min(dists_edge))
+}) %>% list_rbind(names_to = "Id_muestreo")
+Min_dist_forest
+
+## Plot to ensure that distance to forest worked
+In_forest <- Min_dist_forest %>% filter(In_forest == 1) %>% 
+  arrange(desc(Dist_to_edge)) %>%
+  pull(Id_muestreo)
+# Plot
+forest %>% filter(Id_muestreo == In_forest[2]) %>%
+  ggplot() + 
+  geom_spatvector() + 
+  geom_spatvector(data = filter(Pc_vect_proj, Id_muestreo == In_forest[2]))
+}
+
 stop()
+
+# Save and export ---------------------------------------------------------
 # Export centroids of point counts still to be digitized for Natalia
 Low_pi %>% left_join(Pc_locs_sf) %>%
   filter(Id_muestreo != "OQ_Practica") #%>% 
@@ -294,6 +353,8 @@ prob_pi_ids %>% as.data.frame() #%>%
 # Export Excel of lsm
 Lsm_df_exp <- Lsm_df %>% mutate(lc_file = file_name) %>%
   as.data.frame() 
+
+stop()
 Lsm_df_exp %>%
   #if(FALSE){
     write.xlsx(
@@ -301,7 +362,31 @@ Lsm_df_exp %>%
   )
   #}
 
-warnings() # 50+ warnings: Double values will be converted to integer.
+# >Load lsm, save image ------------------------------------------------
+stop()
+Hab_join <- Pc_hab %>% distinct(Uniq_db, Id_muestreo, Habitat_cons)
+
+## Lsm files
+Lsm_path <- "Derived/Excels/Lsm"
+Lsm_files <- list.files(Lsm_path, pattern = "Lsm")
+
+# Read in files
+Lsm_l <- map(Lsm_files, \(file){
+  read_excel(path = paste0(Lsm_path, "/", file))
+}) 
+names(Lsm_l) <- c("middle", "past", "ubc")
+
+# Pivot_longer for plotting 
+Lsm_long <- map(Lsm_l, \(lsm){
+  lsm %>% left_join(Hab_join)
+}) %>% list_rbind() %>% 
+  filter(!is.na(Habitat_cons) & Habitat_cons != "Cultivos") %>%
+  select(-c(te, data_year)) %>%
+  pivot_longer(cols = c(forest:ssp), 
+               names_to = "Lc_manual", values_to = "Percent_cover")
+
+# Export Rdata object
+save(Lsm_l, Lsm_long, Min_dist_forest, file = "Rdata/Lsm_l.Rdata")
 
 # Extras ------------------------------------------------------------------
 # >Correlations ------------------------------------------------------------
@@ -336,7 +421,7 @@ imap(Id_prob, \(id, name){
 
 prob <- "G-MB-G-CB"
 
-Snapped_lcs %>% filter(Id_muestreo == "G-MB-M-A_01-B") %>%
+Snapped_lcs %>% filter(Id_muestreo == prob) %>% # "G-MB-M-A_01-B"
   ggplot() + 
   geom_spatvector() +
   labs(title = prob)
@@ -352,13 +437,13 @@ Bird_pcs %>% filter(Id_group %in% Id_prob) %>%
 Prob_ids <- Lsm_pland %>% filter(empty > 0) %>% 
   pull(Id_muestreo) %>% 
   unique() 
-Prob_ids <- setNames(Prob_ids, Prob_ids) # Does G-MB-A-CL_01 still show up? 
+Prob_ids <- setNames(Prob_ids, Prob_ids) 
 
 df <- Snapped_lcs %>% filter(Id_muestreo == Prob_ids[1])
 df2 <- Snapped_lcs %>% 
   filter(Id_muestreo == Prob_ids[1] & lc_typ2 == "other")
 ggplot() +
-  geom_spatvector(data = df, aes(fill = lc_typ2), alpha = .1) +
+  #geom_spatvector(data = df, aes(fill = lc_typ2), alpha = .1) +
   geom_spatvector(data = df2, aes(fill = lc_typ2), color = "red", alpha = 1) +
   labs(title = Prob_ids[1])
 
