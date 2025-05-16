@@ -163,7 +163,6 @@ if(FALSE){
 
 # Calc metrics ------------------------------------------------------------
 ## Calculate lsm using Landscapemetrics package
-
 # Generate objects going into scale_sample() function
 Pc_vect <- Pc_locs_sf %>% select(-c(Uniq_db, Nombre_institucion)) %>%
   distinct() %>%
@@ -303,27 +302,33 @@ forest <- Snapped_lcs %>% filter(lc_typ2 == "forest")
 # Identify closest forest within 300m
 Ids <- Pc_vect_proj$Id_muestreo
 Ids <- setNames(Ids, Ids)
+
 Min_dist_forest <- map(Ids, \(id) {
   # Subset 
   forest_id <- forest[forest$Id_muestreo == id, ] %>% 
-    makeValid() %>%
-    terra::aggregate()
+    makeValid() #%>%
+    #terra::aggregate()
   Pc_cent_id <- Pc_vect_proj[Pc_vect_proj$Id_muestreo == id, ]
   
-  # If no forest, return NA
+  # If no forest in buffer, return NA for Dist_to_edge
   if (nrow(forest_id) == 0){
-    return(tibble(In_forest = NA_real_, Dist_to_edge = NA_real_))
+    return(tibble(In_forest = 0, Dist_to_edge = NA_real_))
   } 
   
   # If there are forest polygons, first determine if point count centroid is within a forest polygon 
   In_forest <- any(relate(
     x = forest_id, y =  Pc_cent_id, relation = "contains")
     )
+  forest_typ <- terra::extract(forest_id, Pc_cent_id) %>% pull(forest_typ)
   # Calculate distance to each forest polygon & take the minimum 
   dists_edge <- terra::distance(Pc_cent_id, as.lines(forest_id))
-  tibble(In_forest, Dist_to_edge = min(dists_edge))
-}) %>% list_rbind(names_to = "Id_muestreo")
-Min_dist_forest
+  tibble(In_forest, forest_typ, Dist_to_edge = round(min(dists_edge), 2))
+}) %>% list_rbind(names_to = "Id_muestreo") %>% 
+  distinct() # There are some duplicates after adding forest_typ
+Min_dist_forest %>% filter(In_forest == 1)
+
+# NOTE:: UBC points didn't make it in b/c they are not in the 'middle' shapefile
+Min_dist_forest %>% filter(Id_muestreo == "UBC-MB-M-A_01")
 
 ## Plot to ensure that distance to forest worked
 In_forest <- Min_dist_forest %>% filter(In_forest == 1) %>% 
@@ -335,8 +340,6 @@ forest %>% filter(Id_muestreo == In_forest[2]) %>%
   geom_spatvector() + 
   geom_spatvector(data = filter(Pc_vect_proj, Id_muestreo == In_forest[2]))
 }
-
-stop()
 
 # Save and export ---------------------------------------------------------
 # Export centroids of point counts still to be digitized for Natalia
@@ -364,7 +367,8 @@ Lsm_df_exp %>%
 
 # >Load lsm, save image ------------------------------------------------
 stop()
-Hab_join <- Pc_hab %>% distinct(Uniq_db, Id_muestreo, Habitat_cons)
+Hab_join <- Pc_hab %>% distinct(Id_muestreo, Habitat_cons) %>% 
+  filter(!is.na(Habitat_cons))
 
 ## Lsm files
 Lsm_path <- "Derived/Excels/Lsm"
@@ -386,7 +390,7 @@ Lsm_long <- map(Lsm_l, \(lsm){
                names_to = "Lc_manual", values_to = "Percent_cover")
 
 # Export Rdata object
-save(Lsm_l, Lsm_long, Min_dist_forest, file = "Rdata/Lsm_l.Rdata")
+#save(Lsm_l, Lsm_long, Min_dist_forest, file = "Rdata/Lsm_l.Rdata")
 
 # Extras ------------------------------------------------------------------
 # >Correlations ------------------------------------------------------------
