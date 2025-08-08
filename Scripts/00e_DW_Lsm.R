@@ -295,7 +295,7 @@ if(file_name == "ubc"){
 }
 
 
-# Calculate distance to forest --------------------------------------------
+# Cal minimum distance to forest --------------------------------------------
 if(file_name == "middle"){
 forest <- Snapped_lcs %>% filter(lc_typ2 == "forest")
 
@@ -365,8 +365,15 @@ Lsm_df_exp %>%
   )
   #}
 
+if(file_name == "middle"){
+  Min_dist_forest %>%
+    as.data.frame() %>%
+  write.xlsx(
+    file = "Derived/Excels/Lsm/Min_dist_forest.xlsx", showNA = FALSE, row.names = FALSE
+  ) 
+}
+
 # >Load lsm, save image ------------------------------------------------
-stop()
 Hab_join <- Pc_hab %>% distinct(Id_muestreo, Habitat_cons) %>% 
   filter(!is.na(Habitat_cons))
 
@@ -387,10 +394,10 @@ Lsm_long <- map(Lsm_l, \(lsm){
   filter(!is.na(Habitat_cons) & Habitat_cons != "Cultivos") %>%
   select(-c(te, data_year)) %>%
   pivot_longer(cols = c(forest:ssp), 
-               names_to = "Lc_manual", values_to = "Percent_cover")
+               names_to = "Lc_manual_per_cover", values_to = "Percent_cover")
 
 # Export Rdata object
-#save(Lsm_l, Lsm_long, Min_dist_forest, file = "Rdata/Lsm_l.Rdata")
+save(Lsm_l, Lsm_long, file = "Rdata/Lsm_l.Rdata")
 
 # Extras ------------------------------------------------------------------
 # >Correlations ------------------------------------------------------------

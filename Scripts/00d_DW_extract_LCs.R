@@ -19,7 +19,6 @@
 # 7) Snap: Fill in any small gaps in the LC polygons
 # Extras:: Several things associated with problem solving 
 
-## TO DO: See little journal
 # Something weird going on with image_date -- trace backwards to understand where date errors are coming from
 
 # Load libraries & Rdata --------------------------------------------------
@@ -44,7 +43,7 @@ load("Rdata/the_basics_05.10.25.Rdata")
 
 # Which shapefile?  -------------------------------------------------------
 # This determines which file is processed & ultimately exported 
-tbl_row <- 1 # 1 = middle, 2 = past, 3 = ubc
+tbl_row <- 3 # 1 = middle, 2 = past, 3 = ubc
 
 # Create Index_tbl
 Uniq_db <- unique(Bird_pcs$Uniq_db)
@@ -52,15 +51,16 @@ Index_tbl <- tibble(name = c("middle", "past", "ubc"), index = c(2,3,4), data_co
 
 # Bring in data -----------------------------------------------------------
 #Mathilde shapefiles
-path <- "../../Mentorship/Digitization_Mathilde/Final_docs/final_shp_for_natalia/5.7.25"
-files.shp <- list.files(path = path, pattern = "final") #, recursive = TRUE)
-#files.shp <- files.shp[-2] # Remove old lc_middle file
+path <- "../../Mentorship/Digitization_Mathilde/Final_docs/final_shp_for_natalia/current_docs"
+files.shp <- list.files(path = path, pattern = c("final")) #, recursive = TRUE)
+files.ignore <- list.files(path = path, pattern = "wal|shm")
+files.shp2 <- setdiff(files.shp, files.ignore)
 
-shp.lc.L <- map(.x = files.shp, \(shp)
+shp.lc.L <- map(.x = files.shp2, \(shp)
                 vect(paste0(path, "/", shp)) %>%
                   clean_names())
-files.shp2 <- str_remove(files.shp, ".gpkg")
-names(shp.lc.L) <- files.shp2
+files.shp3 <- str_remove(files.shp2, ".gpkg")
+names(shp.lc.L) <- files.shp3
 
 # Formatting LC dataframes
 shp.lc.L[c(2:4)] <- map(shp.lc.L[c(2:4)], \(polys){
