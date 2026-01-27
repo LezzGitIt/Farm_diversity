@@ -19,9 +19,11 @@
 # 7) Plot: Plot point counts with low or high 'percentage inside' values
 # 8) Pivot long to wide: Landscapemetrics defaults to a long dataframe, but we ultimately want a single row per Id_muestreo X buffer size. 
 # 9) Date_year manual: Update Date_year column for "past" & "ubc" files
-# 10) Export landscape metric dataframes: Export dataframes that are then joined in future script
+# 10) Export landscape metrics dataframe: Export dataframes that are then joined in future script
+# 11) Run script 3x (for all three time periods)
+# 12) Join with Event covariates & export 
 
-# Load libraries --------------------------------------------------------
+# Load libraries and data ---------------------------------------------------
 pkgs <- c(
   "terra", "tidyterra", "sf", "tidyverse", "janitor", "cowplot", "maptiles",
   "xlsx", "readxl", "gridExtra", "ggpubr", "conflicted", "landscapemetrics"
@@ -37,7 +39,8 @@ conflicts_prefer(dplyr::filter)
 source("/Users/aaronskinner/Library/CloudStorage/OneDrive-UBC/Grad_School/Rcookbook/Themes_funs.R")
 
 # Load data
-load("Rdata/the_basics_05.10.25.Rdata")
+Pc_locs_dc <- vect("Derived_geospatial/shp/Pc_locs_dc.gpkg")
+Event_covs_pcs <- read_csv("Derived/Excels/Event_covs_pcs.csv")
 
 # Which shapefile?  --------------------------------------------------------
 file_name <- "middle" # middle, past, ubc
@@ -102,7 +105,6 @@ uniq_classes
 
 map(uniq_classes, length)
 keep(uniq_classes, ~length(.x) >4)
-?keep
 
 ## Working
 join_lc_class <- map2(Lc_rast_l, uniq_classes, \(rast, class) {
@@ -164,14 +166,14 @@ if(FALSE){
 # Calc metrics ------------------------------------------------------------
 ## Calculate lsm using Landscapemetrics package
 # Generate objects going into scale_sample() function
-Pc_vect <- Pc_locs_sf %>% select(-c(Uniq_db, Nombre_institucion)) %>%
+Pc_locs_dc2 <- Pc_locs_dc %>% 
+  select(-c(Uniq_db, Nombre_institucion)) %>%
   distinct() %>%
   filter(Id_muestreo %in% names(Lc_rast_l)) %>%
-  vect() %>% 
   project("EPSG:4686")
 
-Pc_vect_proj <- Pc_vect %>% project("EPSG:3116")
-Pc_cents <- Pc_vect_proj %>%
+Pc_locs_dc_proj <- Pc_locs_dc2 %>% project("EPSG:3116")
+Pc_cents <- Pc_locs_dc_proj %>%
   terra::split("Id_muestreo")
 
 Buffer_rad_nmr <- c(seq(from = 300, to = 50, by = -50), 25)
@@ -243,7 +245,7 @@ prob_pi_plots <- pmap(prob_ids_min_max[,1:2], \(Id_muestreo, percent_inside) {
     theme(legend.position = "none")
 })
 # Visualize example
-# prob_pi_plots
+# prob_pi_plots[15:20]
 
 ## Print PDF file with 9 plots per page
 if(FALSE){
@@ -295,12 +297,12 @@ if(file_name == "ubc"){
 }
 
 
-# Cal minimum distance to forest --------------------------------------------
+# Calc minimum distance to forest --------------------------------------------
 if(file_name == "middle"){
 forest <- Snapped_lcs %>% filter(lc_typ2 == "forest")
 
 # Identify closest forest within 300m
-Ids <- Pc_vect_proj$Id_muestreo
+Ids <- Pc_locs_dc_proj$Id_muestreo
 Ids <- setNames(Ids, Ids)
 
 Min_dist_forest <- map(Ids, \(id) {
@@ -308,7 +310,7 @@ Min_dist_forest <- map(Ids, \(id) {
   forest_id <- forest[forest$Id_muestreo == id, ] %>% 
     makeValid() #%>%
     #terra::aggregate()
-  Pc_cent_id <- Pc_vect_proj[Pc_vect_proj$Id_muestreo == id, ]
+  Pc_cent_id <- Pc_locs_dc_proj[Pc_locs_dc_proj$Id_muestreo == id, ]
   
   # If no forest in buffer, return NA for Dist_to_edge
   if (nrow(forest_id) == 0){
@@ -338,32 +340,22 @@ In_forest <- Min_dist_forest %>% filter(In_forest == 1) %>%
 forest %>% filter(Id_muestreo == In_forest[2]) %>%
   ggplot() + 
   geom_spatvector() + 
-  geom_spatvector(data = filter(Pc_vect_proj, Id_muestreo == In_forest[2]))
+  geom_spatvector(data = filter(Pc_locs_dc_proj, Id_muestreo == In_forest[2]))
 }
 
 # Save and export ---------------------------------------------------------
-# Export centroids of point counts still to be digitized for Natalia
-Low_pi %>% left_join(Pc_locs_sf) %>%
-  filter(Id_muestreo != "OQ_Practica") #%>% 
-#st_write("Derived_geospatial/shp/To_digitize_natalia/To_digitize.shp")
-
-# Export 
-prob_pi_ids %>% as.data.frame() #%>%
-  #write.xlsx(file = paste0("Derived/Excels/Lsm/Polys_percent_inside.xlsx"), 
-  #showNA = FALSE, row.names = FALSE
-#)
-
-# Export Excel of lsm
-Lsm_df_exp <- Lsm_df %>% mutate(lc_file = file_name) %>%
-  as.data.frame() 
-
 stop()
-Lsm_df_exp %>%
-  #if(FALSE){
+# Export Excel of lsm
+Lsm_df_exp <- Lsm_df %>% 
+  mutate(lc_file = file_name)
+
+if(FALSE){
+  Lsm_df_exp %>%
+    as.data.frame() %>%
     write.xlsx(
-    file = paste0("Derived/Excels/Lsm/Lsm_df_", file_name, "_", format(Sys.Date(), "%m.%d.%y"), ".xlsx"), showNA = FALSE, row.names = FALSE
-  )
-  #}
+      file = paste0("Derived/Excels/Lsm/Lsm_df_", file_name, "_", format(Sys.Date(), "%m.%d.%y"), ".xlsx"), showNA = FALSE, row.names = FALSE
+    )
+}
 
 if(file_name == "middle"){
   Min_dist_forest %>%
@@ -373,7 +365,19 @@ if(file_name == "middle"){
   ) 
 }
 
-# >Load lsm, save image ------------------------------------------------
+# Export centroids of point counts still to be digitized for Natalia
+Pc_locs_dc %>% st_as_sf() %>% 
+  right_join(Low_pi) %>%
+  filter(Id_muestreo != "OQ_Practica") #%>% 
+#st_write("Derived_geospatial/shp/To_digitize_natalia/To_digitize.shp")
+
+# Export 
+prob_pi_ids %>% as.data.frame() #%>%
+#write.xlsx(file = paste0("Derived/Excels/Lsm/Polys_percent_inside.xlsx"), 
+#showNA = FALSE, row.names = FALSE
+#)
+
+# >Load lsm, save object ------------------------------------------------
 Hab_join <- Pc_hab %>% distinct(Id_muestreo, Habitat_cons) %>% 
   filter(!is.na(Habitat_cons))
 
@@ -398,6 +402,42 @@ Lsm_long <- map(Lsm_l, \(lsm){
 
 # Export Rdata object
 save(Lsm_l, Lsm_long, file = "Rdata/Lsm_l.Rdata")
+
+# Join with Event_covs ----------------------------------------------------
+load("Rdata/Lsm_l.Rdata")
+
+# Keep the 300m buffer
+Lsm_l_300 <- map(Lsm_l, \(df){
+  df %>% slice_max(by = Id_muestreo, order_by = buffer) %>% 
+    select(-buffer)
+})
+
+# Rename year column in ubc & past files to match with the Event_covs_pcs file 
+Lsm_l_300[2:3] <- map(Lsm_l_300[2:3], \(df){
+  df %>% rename(Ano = data_year)
+})
+
+# Join site covs with landscapemetrics. First, match Site_covs_df with 'middle' shapefile, & then overwrite the middle file using the past & ubc files in the correct locations with rows_update() function
+# NOTE:: The 'lc_file' column specifies where the lc information comes from
+Event_covs_lsm <- Event_covs_pcs %>% 
+  left_join(Lsm_l_300$middle) %>%
+  rows_update(Lsm_l_300$ubc, by = c("Id_muestreo", "Ano")) %>%
+  rows_update(Lsm_l_300$past, by = c("Id_muestreo", "Ano")) %>% 
+  select(-lc_file)
+#Event_covs_lsm %>% write_csv("Derived/Excels/Event_covs_lsm.csv")
+
+# >Checks -----------------------------------------------------------------
+# Row accounting 
+nrow_ec <- Event_covs_lsm %>%
+  distinct(Id_muestreo, Ano_grp, forest, intpast, other, ssp, te) %>% 
+  nrow()
+nrow_site_covs_df <- 667
+# 8 UBC EH points, 4 for CIPAV 2025
+nrow_ec - 8 - 4 - nrow_site_covs_df # 2 sites unaccounted for
+
+# Already did several checks & all look good, including this one!
+# Should be no NAs!
+Event_covs_pcs3 %>% filter(is.na(forest) | is.na(ssp) | is.na(te))
 
 # Extras ------------------------------------------------------------------
 # >Correlations ------------------------------------------------------------
