@@ -471,8 +471,38 @@ Event_covs_lsm <- Event_covs_pcs %>%
   rows_update(Lsm_l_comb$past, by = c("Id_muestreo", "Ano")) %>% 
   select(-lc_file)
 
-# Export
+# >Fill in blanks until Natalia --------------------------------------------
+## Until Natalia can digitize the landcover for the latest years let's just fill them with the most recent year
+# Inspect - Blanks for UBC data collected in 2025 - 2026
 Event_covs_lsm %>% 
+  Na_rows_cols(
+    id_cols = Id_muestreo, 
+    cols_inc = -c(Registrado_por, Noise, Clima, Cows_50m, forest_typ)
+  ) #%>% pull(Id_muestreo) %>% unique()
+
+# First group_by(Id_muestreo) to ensure that it pulls from UBC (2022) data where possible 
+Event_covs_lsm2 <- Event_covs_lsm %>% 
+  group_by(Id_muestreo) %>% 
+  fill(Dist_forest, forest, intpast, other, ssp, te) %>% 
+  ungroup()
+# Next group_by(Id_muestreo_no_dc) to pick up any stragglers
+Event_covs_lsm3 <- Event_covs_lsm2 %>% 
+  group_by(Id_muestreo_no_dc) %>% 
+  arrange(Ano) %>% 
+  # Fills down by default
+  fill(Dist_forest, forest, intpast, other, ssp, te) %>% 
+  ungroup() 
+
+# Still no data for El Hatico
+Event_covs_lsm3 %>% 
+  Na_rows_cols(
+    id_cols = Id_muestreo, 
+    cols_inc = -c(Registrado_por, Noise, Clima, Cows_50m, forest_typ)
+  ) %>% pull(Id_muestreo)
+
+
+# Export
+Event_covs_lsm3 %>% 
   #filter(Id_group != "UBC-MB-VC-EH") %>% 
   write_csv("Derived/Excels/Event_covs_lsm.csv")
 
