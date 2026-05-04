@@ -43,7 +43,7 @@ Pc_locs_dc <- vect("Derived_geospatial/shp/Pc_locs_dc.gpkg")
 Event_covs_pcs <- read_csv("Derived/Excels/Event_covs_pcs.csv")
 
 # Which shapefile?  --------------------------------------------------------
-file_name <- "middle" # middle, past, ubc
+file_name <- "ubc" # middle, past, ubc
 
 Snapped_lcs <- vect(paste0("Derived_geospatial/shp/R_processed/Snapped_", file_name, ".gpkg"))
 
@@ -275,7 +275,7 @@ Lsm_te <- Lsm_df_long %>% filter(metric == "te") %>%
               names_from = metric,
               values_from = value)
 
-# Join tibbles - 484 rows
+# Join tibbles
 Lsm_df <- Lsm_pland %>% full_join(Lsm_te) %>% 
   select(-metric) %>% 
   mutate(across(where(is.numeric), ~ round(.x, 2))) %>% 
@@ -297,8 +297,8 @@ if(file_name == "ubc"){
 }
 
 
-# Calc minimum distance to forest --------------------------------------------
-if(file_name == "middle"){
+# Minimum distance to forest -------------------------------------------------
+#if(file_name == "middle"){
 forest <- Snapped_lcs %>% filter(lc_typ2 == "forest")
 
 # Identify closest forest within 300m
@@ -324,30 +324,45 @@ Min_dist_forest <- map(Ids, \(id) {
   forest_typ <- terra::extract(forest_id, Pc_cent_id) %>% pull(forest_typ)
   # Calculate distance to each forest polygon & take the minimum 
   dists_edge <- terra::distance(Pc_cent_id, as.lines(forest_id))
-  tibble(In_forest, forest_typ, Dist_to_edge = round(min(dists_edge), 2))
+  Min_dist_tbl <- tibble(
+    In_forest = as.numeric(In_forest), 
+    forest_typ, 
+    Dist_to_edge = round(min(dists_edge), 2)
+    )
+  if(file_name == "middle"){
+    data_year <- NA_real_
+  } else if(file_name == "past") {
+    data_year <- forest_id %>% 
+      pull(data_year) %>% 
+      unique()
+    }
+  # ubc
+  else {data_year <- 2022}
+  Min_dist_tbl$data_year <- data_year
+  return(Min_dist_tbl)
 }) %>% list_rbind(names_to = "Id_muestreo") %>% 
   distinct() # There are some duplicates after adding forest_typ
 Min_dist_forest %>% filter(In_forest == 1)
-
-# NOTE:: UBC points didn't make it in b/c they are not in the 'middle' shapefile
-Min_dist_forest %>% filter(Id_muestreo == "UBC-MB-M-A_01")
 
 ## Plot to ensure that distance to forest worked
 In_forest <- Min_dist_forest %>% filter(In_forest == 1) %>% 
   arrange(desc(Dist_to_edge)) %>%
   pull(Id_muestreo)
 # Plot
-forest %>% filter(Id_muestreo == In_forest[2]) %>%
+forest %>% filter(Id_muestreo == In_forest[1]) %>%
   ggplot() + 
   geom_spatvector() + 
-  geom_spatvector(data = filter(Pc_locs_dc_proj, Id_muestreo == In_forest[2]))
-}
+  geom_spatvector(data = filter(Pc_locs_dc_proj, Id_muestreo == In_forest[1]))
+#}
 
 # Save and export ---------------------------------------------------------
 stop()
 # Export Excel of lsm
 Lsm_df_exp <- Lsm_df %>% 
   mutate(lc_file = file_name)
+
+# CHECK
+Lsm_df_exp %>% Na_rows_cols()
 
 if(FALSE){
   Lsm_df_exp %>%
@@ -357,19 +372,12 @@ if(FALSE){
     )
 }
 
-if(file_name == "middle"){
+#if(file_name == "middle"){
+export_path <- paste0("Derived/Excels/Lsm/Min_dist_forest/Min_dist_forest_", file_name, ".csv")
   Min_dist_forest %>%
-    as.data.frame() %>%
-  write.xlsx(
-    file = "Derived/Excels/Lsm/Min_dist_forest.xlsx", showNA = FALSE, row.names = FALSE
-  ) 
-}
-
-# Export centroids of point counts still to be digitized for Natalia
-Pc_locs_dc %>% st_as_sf() %>% 
-  right_join(Low_pi) %>%
-  filter(Id_muestreo != "OQ_Practica") #%>% 
-#st_write("Derived_geospatial/shp/To_digitize_natalia/To_digitize.shp")
+    mutate(lc_file = file_name) %>% 
+    write_csv(file = export_path)
+#}
 
 # Export 
 prob_pi_ids %>% as.data.frame() #%>%
@@ -378,8 +386,8 @@ prob_pi_ids %>% as.data.frame() #%>%
 #)
 
 # >Load lsm, save object ------------------------------------------------
-Hab_join <- Pc_hab %>% distinct(Id_muestreo, Habitat_cons) %>% 
-  filter(!is.na(Habitat_cons))
+Hab_join <- Pc_hab %>% distinct(Id_muestreo, Habitat) %>% 
+  filter(!is.na(Habitat))
 
 ## Lsm files
 Lsm_path <- "Derived/Excels/Lsm"
@@ -395,36 +403,78 @@ names(Lsm_l) <- c("middle", "past", "ubc")
 Lsm_long <- map(Lsm_l, \(lsm){
   lsm %>% left_join(Hab_join)
 }) %>% list_rbind() %>% 
-  filter(!is.na(Habitat_cons) & Habitat_cons != "Cultivos") %>%
   select(-c(te, data_year)) %>%
   pivot_longer(cols = c(forest:ssp), 
-               names_to = "Lc_manual_per_cover", values_to = "Percent_cover")
+               names_to = "Lc_manual_per_cover", 
+               values_to = "Percent_cover")
 
 # Export Rdata object
 save(Lsm_l, Lsm_long, file = "Rdata/Lsm_l.Rdata")
 
+
+# >Load Min_dist_forest ---------------------------------------------------
+## Min_dist_forest_files
+Min_dist_forest_path <- paste0(Lsm_path, "/Min_dist_forest")
+Min_dist_forest_files <- list.files(Min_dist_forest_path,
+                                    pattern = ".csv")
+# Read in files
+Min_dist_forest_l <- map(Min_dist_forest_files, \(file){
+  read_csv(paste0(Min_dist_forest_path, "/", file))
+}) 
+names(Min_dist_forest_l) <- c("middle", "past", "ubc")
+
+# Format 
+Min_dist_forest_l2 <- map(Min_dist_forest_l, \(min_dist){
+  min_dist %>% mutate(
+    Dist_forest = case_when(
+      # Points inside forest are negative distances. 
+      In_forest == 1 ~ Dist_to_edge * -1,
+      # If NA (there is no forest within 300m assign a distance of 300)
+      is.na(Dist_to_edge) ~ 300,
+      .default = Dist_to_edge)
+  )
+})
+
+# Should be no NAs
+Min_dist_forest_l2$ubc %>% filter(is.na(data_year))
+
 # Join with Event_covs ----------------------------------------------------
 load("Rdata/Lsm_l.Rdata")
+Event_covs_pcs <- read_csv("Derived/Excels/Event_covs_pcs.csv")
 
 # Keep the 300m buffer
-Lsm_l_300 <- map(Lsm_l, \(df){
-  df %>% slice_max(by = Id_muestreo, order_by = buffer) %>% 
+Lsm_l_300 <- map(Lsm_l, \(Lsm_df){
+  Lsm_df %>% slice_max(by = Id_muestreo, order_by = buffer) %>% 
     select(-buffer)
 })
 
+# Join Lsm with min_dist_forest
+Lsm_l_comb <- map2(Lsm_l_300, Min_dist_forest_l2, \(Lsm_df, Min_dist_df){
+  Min_dist_df %>% select(-c(In_forest, Dist_to_edge)) %>% 
+    full_join(Lsm_df)
+})
+
 # Rename year column in ubc & past files to match with the Event_covs_pcs file 
-Lsm_l_300[2:3] <- map(Lsm_l_300[2:3], \(df){
+Lsm_l_comb$middle <- Lsm_l_comb$middle %>% select(-data_year)
+Lsm_l_comb[2:3] <- map(Lsm_l_comb[2:3], \(df){
   df %>% rename(Ano = data_year)
 })
 
+Lsm_df_exp %>% pull(Id_muestreo) %>% unique()
+
+  
 # Join site covs with landscapemetrics. First, match Site_covs_df with 'middle' shapefile, & then overwrite the middle file using the past & ubc files in the correct locations with rows_update() function
 # NOTE:: The 'lc_file' column specifies where the lc information comes from
 Event_covs_lsm <- Event_covs_pcs %>% 
-  left_join(Lsm_l_300$middle) %>%
-  rows_update(Lsm_l_300$ubc, by = c("Id_muestreo", "Ano")) %>%
-  rows_update(Lsm_l_300$past, by = c("Id_muestreo", "Ano")) %>% 
+  left_join(Lsm_l_comb$middle) %>%
+  rows_update(Lsm_l_comb$ubc, by = c("Id_muestreo", "Ano")) %>%
+  rows_update(Lsm_l_comb$past, by = c("Id_muestreo", "Ano")) %>% 
   select(-lc_file)
-#Event_covs_lsm %>% write_csv("Derived/Excels/Event_covs_lsm.csv")
+
+# Export
+Event_covs_lsm %>% 
+  #filter(Id_group != "UBC-MB-VC-EH") %>% 
+  write_csv("Derived/Excels/Event_covs_lsm.csv")
 
 # >Checks -----------------------------------------------------------------
 # Row accounting 
