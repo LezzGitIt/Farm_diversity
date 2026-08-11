@@ -49,6 +49,18 @@ cat(
   nrow(Farm_div_unmatched), "were dropped (no matching Id_gcs in Tax_div_all_farms).\n"
 )
 
+## The reverse direction: farms with a bird biodiversity estimate but no matching row in the
+## diversity-index spreadsheet (e.g. reference/control sites outside the SCR farm-diversification survey)
+Bio_farms_unmatched <- Tax_div_all_farms %>%
+  distinct(Id_gcs, Uniq_db, Ano_grp, Season) %>%
+  anti_join(Farm_div, by = "Id_gcs") %>%
+  arrange(Id_gcs)
+
+cat(
+  n_distinct(Bio_farms_unmatched$Id_gcs), "farms have a bird biodiversity estimate",
+  "but no matching row in the diversity-index spreadsheet.\n"
+)
+
 # Attach a farm-level biodiversity summary for context in later exploration ----
 
 ## Non-asymptotic species richness (Order.q == 0) at Cmax, from the high-coverage subset
@@ -78,3 +90,4 @@ Farm_div_matched <- Farm_div_matched %>%
 dir.create("Derived/Excels", recursive = TRUE, showWarnings = FALSE)
 write_csv(Farm_div_matched, "Derived/Excels/Farm_diversity_matched.csv")
 write_csv(Farm_div_unmatched, "Derived/Excels/Farm_diversity_unmatched.csv")
+write_csv(Bio_farms_unmatched, "Derived/Excels/Bio_farms_unmatched.csv")

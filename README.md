@@ -33,6 +33,10 @@ work.
     sampled).
   - `Excels/Farm_diversity_unmatched.csv` — the farms dropped for lacking a
     biodiversity estimate, kept for the matched-vs-unmatched comparison plot.
+  - `Excels/Bio_farms_unmatched.csv` — the reverse direction: farms with a bird
+    biodiversity estimate but no matching row in the diversity-index spreadsheet.
+    Currently just 3 (`Ref_El_hatico`, `Ref_La_luisa`, `Ref_Lucerna`) — reference/
+    control sites outside the SCR farm-diversification survey, not a data problem.
 - `Figures/` — saved plots
 - `Scripts/` — analysis scripts
   - `qmd/` — the diversity-estimation notebooks moved from `Ch1-ssp-birds`
