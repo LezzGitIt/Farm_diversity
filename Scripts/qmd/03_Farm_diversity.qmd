@@ -2,25 +2,14 @@
 title: "Predictors of bird diversity on SCR farms"
 number-sections: true
 # If you do not want code to show... echo: false
-execute: 
+execute:
  #echo: false
  message: false
  warning: false
- #toc: true
 format:
-  elsevier-pdf: # elsevier-pdf
-    header-includes:
-      - |
-        \usepackage{fancyhdr}
-        \pagestyle{fancy}
-        \usepackage{makecell}
-        \usepackage{lineno}
-        \linenumbers
-        \usepackage[margin=1in]{geometry}
-        \setlength{\LTleft}{\fill}
-        \setlength{\LTright}{\fill}
-metadata-files: 
-  - ../Suppfiles/author_my_info.yml
+  html:
+    toc: true
+    embed-resources: true
 ---
 
 {{< pagebreak >}}

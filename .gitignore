@@ -2,6 +2,12 @@
 Derived/
 Figures/
 
+# Quarto render byproducts
+*_cache/
+*_files/
+*.rmarkdown
+/.quarto/
+
 # Source data - kept local only, not pushed to GitHub
 Data/
 
