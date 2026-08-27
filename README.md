@@ -40,7 +40,7 @@ work.
     Currently just 3 (`Ref_El_hatico`, `Ref_La_luisa`, `Ref_Lucerna`) — reference/
     control sites outside the SCR farm-diversification survey, not a data problem.
   - `Excels/Ecoregion_variance_explained.csv` — R² of each index / bird metric on
-    `Ecoregion` (see `Scripts/02_Farm_diversity_plots.R`).
+    `Ecoregion` (see `Scripts/02_exploratory.R`).
 - `Figures/` — saved plots
 - `Scripts/` — analysis scripts
   - `qmd/` — the diversity-estimation notebooks moved from `Ch1-ssp-birds`
@@ -50,7 +50,7 @@ work.
     and write to `Derived/Excels/`, same as in the original repo — a project-level
     `_quarto.yml` (`execute-dir: project`) keeps those relative paths resolving the
     same way.
-  - `01_Match_farm_diversity.R`, `02_Farm_diversity_plots.R` — see Pipeline below.
+  - `01_Match_farm_diversity.R`, `02_exploratory.R` — see Pipeline below.
   - `Farm_diversity_fns.R` — shared helpers (`latest_file()`), sourced by `01`
     and `03_Farm_diversity.qmd`.
 - `_quarto.yml` — Quarto project config (`execute-dir: project`) for `Scripts/qmd/`.
@@ -75,7 +75,7 @@ work.
    and the latest two bird-diversity CSVs from `Derived/Excels/`, keeps only
    farms present in `Tax_div_all_farms`, and attaches a farm-level biodiversity
    summary. Exports to `Derived/Excels/`.
-4. `Scripts/02_Farm_diversity_plots.R` — exploratory plots, in two groups:
+4. `Scripts/02_exploratory.R` — exploratory plots, in two groups:
    (a) the four diversification indices on their own — distributions, mutual
    correlation, correlation with farm covariates, and a matched-vs-unmatched
    representativeness check; (b) how the indices vary among the 5 ecoregions
@@ -88,6 +88,6 @@ work.
 69 of 94 farms in the diversification-index spreadsheet have an associated bird
 biodiversity estimate. The bird-diversity estimation pipeline now runs entirely
 in-repo. The linking model (bird diversity ~ diversification indices) is still
-to be built; the ecoregion analysis (step 5) shows land-use and "all practices"
+to be built; the ecoregion analysis in step 4 shows land-use and "all practices"
 diversification are the indices least confounded with ecoregion. See
 `Project_notes.md` (local only) for full session notes.
