@@ -36,6 +36,8 @@ library(cowplot)
 library(ggpubr)
 library(conflicted)
 
+source("Scripts/Farm_diversity_fns.R")
+
 ggplot2::theme_set(theme_cowplot())
 conflicts_prefer(dplyr::select)
 conflicts_prefer(dplyr::filter)
@@ -45,11 +47,11 @@ conflicts_prefer(dplyr::filter)
 #| label: import-data
 #| include: false
 
-## Import taxonomic diversity data 
+## Import taxonomic diversity data (latest date-stamped exports from 02_Analysis_iNEXT.qmd in Derived/Excels/)
 # q12 has larger samples with all farms, but low sample coverage for the non-asymptotic diversity estimate (q = 0)
-Td_q12 <- read_csv("Derived/Excels/Tax_div_all_farms_06.04.26.csv") 
-# q0 has the low sample coverage farms removed 
-Td_q0 <- read_csv("Derived/Excels/Tax_div_coverage65_06.04.26.csv")
+Td_q12 <- read_csv(latest_file("Derived/Excels", "^Tax_div_all_farms_.*\\.csv$"))
+# q0 has the low sample coverage farms removed
+Td_q0 <- read_csv(latest_file("Derived/Excels", "^Tax_div_coverage65_.*\\.csv$"))
 
 ## Load site and event covariates
 Wrangling_repo <- "../Ssp-bird-data-wrangling/"

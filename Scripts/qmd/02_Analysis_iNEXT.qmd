@@ -150,13 +150,16 @@ Bird_pcs_analysis2 <- Bird_pcs_analysis %>%
 ```{r}
 #| label: rm-data-low-sc
 
+## External SNAPP folder holding the no-removal run whose SC_obs values flag the low-coverage assemblages; only the second pass (first_run == FALSE) needs it
 path_td <- "/Users/aaronskinner/Library/CloudStorage/OneDrive-UBC/Academia/PhD/SCR_SNAPP/SCR My products/Taxonomic_diversity/Excels/"
 
-if(any(str_detect(Row_id_inext, "Id_gcs"))){
-  results_no_rm <- read_excel(path = paste0(path_td, "Tax_div_Rd3_no_rm_06.03.26.xlsx"))
-}
-if(any(str_detect(Row_id_inext, "Id_muestreo"))){
-  results_no_rm <- read_excel(path = paste0(path_td, "Tax_div_Rd3_point_count_no_rm.xlsx"), sheet = "Tax_div")
+if(first_run == FALSE){
+  if(any(str_detect(Row_id_inext, "Id_gcs"))){
+    results_no_rm <- read_excel(path = paste0(path_td, "Tax_div_Rd3_no_rm_06.03.26.xlsx"))
+  }
+  if(any(str_detect(Row_id_inext, "Id_muestreo"))){
+    results_no_rm <- read_excel(path = paste0(path_td, "Tax_div_Rd3_point_count_no_rm.xlsx"), sheet = "Tax_div")
+  }
 }
 ```
 
@@ -598,14 +601,10 @@ Export @lst-summary-df (i.e. summary_df2) for sharing with collaborators
 ```{r}
 #| label: export-database
 
-stop()
+## First pass only: the full assemblage set (used downstream for the q = 1 / q = 2 asymptotic estimates)
+# Repo-local only -- the previous external-SNAPP xlsx write was dropped so a run has no side effects outside this repo
 if(first_run){
-  Td_metadata <- read_excel(paste0(path_td, "Tax_div_metadata.xlsx"))
-Tax_div_l_export <- list("Metadata" = Td_metadata, "Tax_div" = summary_df2) 
-write_xlsx(Tax_div_l_export, paste0(path_td, "Tax_div_Rd3_", format(Sys.Date(), "%m.%d.%y"), ".xlsx"))
-
-# Export larger dataset for q = 1 and q = 2
-summary_df2 %>% write_csv(paste0("Derived/Excels/Tax_div_all_farms_", format(Sys.Date(), "%m.%d.%y"), ".csv"))
+  summary_df2 %>% write_csv(paste0("Derived/Excels/Tax_div_all_farms_", format(Sys.Date(), "%m.%d.%y"), ".csv"))
 }
 ```
 

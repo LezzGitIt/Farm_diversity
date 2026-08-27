@@ -21,3 +21,6 @@ Project_notes.md
 
 # macOS
 .DS_Store
+
+# Rscript base-graphics artifact
+Rplots.pdf
