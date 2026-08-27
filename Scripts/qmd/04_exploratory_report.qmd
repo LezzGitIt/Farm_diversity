@@ -1,6 +1,6 @@
 ---
-title: "Farm management diversification — exploratory summary"
-subtitle: "Figures from `Scripts/02_exploratory.R`"
+title: "Farm management diversification — exploratory summary and analysis plan"
+subtitle: "Figures from `Scripts/02_exploratory.R`, plus notes toward the linking model"
 date: today
 format:
   pdf:
@@ -33,9 +33,12 @@ bare <- function(p) p + labs(title = NULL, subtitle = NULL)
 This report summarises the exploratory plots of the four farm management
 diversification indices (land use, water management, pasture management, and an
 overall "all practices" index) on the `r nrow(Farm_div_matched)` SCR farms that
-have an associated bird-diversity estimate. It has two parts: (1) the indices on
-their own, and (2) how they — and bird diversity, and the main farm covariates —
-vary among the five ecoregions.
+have an associated bird-diversity estimate. It has three parts: (1) the indices on
+their own, (2) how they — and bird diversity, and the main farm covariates — vary
+among the five ecoregions, and (3) notes toward the linking model (bird diversity
+as a function of the diversification indices) — how to carry the uncertainty of
+the biodiversity estimates into it, and how to handle the scale of the analysis
+and the confounding role of ecoregion.
 
 # The indices on their own
 
@@ -187,10 +190,125 @@ lines rise smoothly; water and pasture management have a similar rising shape
 and biomass peak in the high-elevation ecoregions rather than tracking the bird
 gradient.
 
-# Takeaway
+# Takeaway from the exploration
 
 At this scale, **land-use diversification and the overall "all practices" index
 are the indices with usable within-ecoregion variation** — a model that accounts
 for ecoregion (or the climate/topography it proxies) can still estimate an
 association for those. Water and pasture management are largely a
 between-ecoregion story and will be hard to separate from ecoregion itself.
+
+{{< pagebreak >}}
+
+# Notes toward the linking model
+
+## Carrying the uncertainty of the biodiversity estimates into the analysis
+
+The response variable is itself an *estimate* — each assemblage's Hill number
+comes from `02_Analysis_iNEXT.qmd` with a bootstrap standard error (`s.e.`) and a
+95% interval (`qTD.LCL` / `qTD.UCL`, `nboot = 100`). Ignoring that treats a
+richness estimate from one lightly-sampled farm the same as a well-sampled one.
+Options, in increasing order of effort:
+
+- **Weighted regression.** Weight each observation by `1 / s.e.^2` in
+  `lmer` / `glmer` (`weights =`). Trivial to add, downweights imprecise
+  assemblages — but treats the weights as known and does not propagate the
+  estimation uncertainty into the coefficient intervals.
+
+- **Bayesian measurement-error model (recommended).** In `brms`:
+  `bf(y | resp_se(se, sigma = TRUE) ~ predictors + (1 | Ecoregion / Id_gcs) + (1 | CollectorXyear))`.
+  Each `s.e.` enters as known measurement error while a residual $\sigma$ is
+  still estimated. This folds the measurement error, the ecoregion / farm
+  nesting, a non-Gaussian family, and honest posterior intervals into one
+  coherent model. It is effectively a Bayesian meta-regression and fits the
+  data shape well.
+
+- **Frequentist multilevel meta-regression.**
+  `metafor::rma.mv(yi = estimate, V = s.e.^2, mods = ~ predictors, random = ~ 1 | Ecoregion / Id_gcs / assemblage)`.
+  Purpose-built for "effect sizes with known sampling variance", fast, handles
+  the nesting. Needs a roughly Gaussian response, so log-transform the Hill
+  numbers first. A good cross-check on the Bayesian model.
+
+- **Monte-Carlo imputation of the response.** Draw B datasets, sampling each
+  assemblage's diversity from its sampling distribution (Normal(estimate, `s.e.`),
+  or better, resampling the retained iNEXT bootstrap replicates), refit the model
+  to each, and pool with Rubin's rules. Model-agnostic — wraps around whatever
+  GLMM you settle on — at the cost of more compute.
+
+Two practical points:
+
+- **Do not average assemblages to the farm first.** `01_Match_farm_diversity.R`'s
+  `Richness_mean` etc. discard the within-farm replication and the per-assemblage
+  standard errors. Model at the assemblage level with `(1 | Id_gcs)` and
+  `(1 | CollectorXyear)`, and the assemblage `s.e.` as measurement error.
+
+- Across repeated runs of `02_Analysis_iNEXT.qmd` the point estimates are
+  identical but the bootstrap `s.e.` values move a little — the SE has its own
+  Monte-Carlo noise at `nboot = 100`. Raise `nboot` to $\geq$ 500 before relying
+  on the SEs quantitatively.
+
+## Approach given the scale and the role of ecoregion
+
+The central difficulty is not a modelling detail: **ecoregion is a common cause
+of both bird diversity and some of the management practices**, and it explains
+30–45% of the response. That is confounding plus limited overlap (water and
+pasture management barely vary within a region). A workable sequence:
+
+1. **Draw the DAG.** Ecoregion drives climate, elevation and the regional species
+   pool, which drive bird diversity; ecoregion also drives baseline farm type,
+   extension programmes and tenure, which drive management diversification;
+   management drives habitat structure and canopy cover, which drive bird
+   diversity; sampling effort drives the *observed* diversity. Ecoregion is
+   almost certainly a confounder, not a mediator. Adjust for the **mechanisms it
+   stands in for** (climate + elevation + a species-pool proxy) rather than the
+   categorical label, so management is not competing against a factor that
+   absorbs everything.
+
+2. **Within / between (Mundlak) decomposition** — the highest-value move.
+   Split each index into its ecoregion mean and the farm's deviation from that
+   mean; put both in the model. The **within (deviation) coefficient** answers
+   the actual question — "is a farm more diversified than its regional peers
+   associated with more birds?" — and is not confounded by ecoregion-level
+   differences. For water and pasture management the within coefficient will
+   simply have wide intervals, which is the honest answer given how little they
+   vary within region.
+
+3. **Multilevel structure.** Assemblages within farms within ecoregions; partial
+   pooling stabilises the five-region estimates: `(1 | Id_gcs)` +
+   `(1 | CollectorXyear)` + `(1 | Ecoregion)`. A random slope for the index by
+   ecoregion is worth a look but is likely underpowered with five regions.
+
+4. **Be explicit about what is identifiable.** With five regions, 69 farms and
+   four correlated indices you cannot cleanly estimate four separate effects.
+   Either pre-register **one** primary index — land use or the "all practices"
+   composite, the two with within-region variation — or run a
+   **Piedemonte-only analysis** (n = 25, the most management variation, region
+   held fixed) as the cleanest quasi-experiment, with the pooled five-region
+   model as secondary.
+
+5. **Model the response properly** (previous section): assemblage level,
+   measurement error, an appropriate family (negative binomial for q = 0;
+   Gamma or lognormal for q = 1, 2), and the sampling covariates
+   (log number of point counts, number of habitats, day of year).
+
+6. **Report variance partitioning and sensitivity, not p-values.** Use
+   `partR2` / `r2glmm` for the share of variance management adds after
+   ecoregion; partial-effect plots (`ggeffects`); and show the management
+   coefficient across three specifications — ecoregion label, climate +
+   elevation, and Mundlak. If it is stable across all three, that is the result.
+
+7. **Causal humility.** Frame everything as association conditional on the
+   adjustment set. Unmeasured farm-level confounders — farmer skill, farm size,
+   baseline habitat — could plausibly drive both diversification and bird
+   diversity.
+
+**Concrete next step:** merge the indices and climate / elevation into
+`03_Farm_diversity.qmd`'s assemblage-level data, then fit a `brms` model such as
+
+```
+richness | resp_se(se) ~ within_allpractices + between_allpractices +
+  climate + elevation + log(Num_pc) + Num.hab +
+  (1 | Id_gcs) + (1 | CollectorXyear) + (1 | Ecoregion)
+```
+
+compare it to the ecoregion-label version, and run the Piedemonte-only cut.
