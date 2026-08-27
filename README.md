@@ -43,13 +43,12 @@ work.
     `Ecoregion` (see `Scripts/02_exploratory.R`).
 - `Figures/` — saved plots
 - `Scripts/` — analysis scripts
-  - `qmd/` — the diversity-estimation notebooks moved from `Ch1-ssp-birds`
-    (`02_Analysis_iNEXT.qmd`, `03_Farm_diversity.qmd`). Formatting simplified to
-    plain HTML output (the original Elsevier-journal PDF template/`Suppfiles`
-    dependency was dropped as unnecessary here). Read from `../Ssp-bird-data-wrangling/`
-    and write to `Derived/Excels/`, same as in the original repo — a project-level
-    `_quarto.yml` (`execute-dir: project`) keeps those relative paths resolving the
-    same way.
+  - `qmd/` — `02_Analysis_iNEXT.qmd`, `03_Farm_diversity.qmd` (moved from
+    `Ch1-ssp-birds`, formatting simplified to plain HTML; read from
+    `../Ssp-bird-data-wrangling/` and write to `Derived/Excels/`), and
+    `04_exploratory_report.qmd` (sources `02_exploratory.R` and renders its
+    figures + descriptions to a PDF). A project-level `_quarto.yml`
+    (`execute-dir: project`) keeps the relative paths resolving.
   - `01_Match_farm_diversity.R`, `02_exploratory.R` — see Pipeline below.
   - `Farm_diversity_fns.R` — shared helpers (`latest_file()`), sourced by `01`
     and `03_Farm_diversity.qmd`.
@@ -78,10 +77,13 @@ work.
 4. `Scripts/02_exploratory.R` — exploratory plots, in two groups:
    (a) the four diversification indices on their own — distributions, mutual
    correlation, correlation with farm covariates, and a matched-vs-unmatched
-   representativeness check; (b) how the indices vary among the 5 ecoregions
-   (bar / box / z-scored-signal plots + `Ecoregion_variance_explained.csv`),
-   contrasted with how bird diversity varies, to gauge how far ecoregion
-   confounds any management–bird-diversity relationship. Exports to `Figures/`.
+   representativeness check; (b) how the indices — and bird diversity, and the
+   median farm covariates (canopy cover, elevation, biomass) — vary among the 5
+   ecoregions (bar / box / z-scored-signal plots + `Ecoregion_variance_explained.csv`),
+   to gauge how far ecoregion confounds any management–bird-diversity
+   relationship. Exports to `Figures/`.
+5. `Scripts/qmd/04_exploratory_report.qmd` — renders the step-4 figures with
+   short descriptions to a PDF (`Derived/Quarto_docs/`).
 
 ## Status / next steps
 

@@ -1,0 +1,196 @@
+---
+title: "Farm management diversification — exploratory summary"
+subtitle: "Figures from `Scripts/02_exploratory.R`"
+date: today
+format:
+  pdf:
+    toc: false
+    fig-pos: "H"
+    geometry: margin=1in
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+
+## Regenerate every figure object (p_distributions, p_corr, ... p_std) and the
+## Ecoregion_variance table from the analysis script itself, so this report can
+## never drift from the code. Fast -- no iNEXT bootstrap here.
+source("Scripts/02_exploratory.R")
+
+library(knitr)
+
+## Drop the on-plot title/subtitle for the report -- the section heading and the
+## paragraph under each figure carry that text, and the long subtitles clip at
+## the PDF page width
+bare <- function(p) p + labs(title = NULL, subtitle = NULL)
+```
+
+This report summarises the exploratory plots of the four farm management
+diversification indices (land use, water management, pasture management, and an
+overall "all practices" index) on the `r nrow(Farm_div_matched)` SCR farms that
+have an associated bird-diversity estimate. It has two parts: (1) the indices on
+their own, and (2) how they — and bird diversity, and the main farm covariates —
+vary among the five ecoregions.
+
+# The indices on their own
+
+## Distribution of each index
+
+```{r}
+#| label: fig-distributions
+#| fig-width: 8
+#| fig-height: 6
+
+bare(p_distributions)
+```
+
+Each index runs 0–1. Land use and "all practices" are spread fairly evenly across
+the range; water and pasture management pile up at a few discrete values (pasture
+management in particular takes only ~5 distinct values), so treat those two as
+coarse ordinal scores rather than continuous measures.
+
+## Correlation among indices and with farm covariates
+
+```{r}
+#| label: fig-corr
+#| fig-width: 7
+#| fig-height: 6
+
+bare(p_corr)
+```
+
+The four indices are only weakly-to-moderately correlated with each other, so
+they carry partly independent information. Correlations with the farm covariates
+(canopy cover, elevation, biomass, distance to nearest SCR farm) are modest.
+
+## Pairwise relationships among the four indices
+
+```{r}
+#| label: fig-pairs
+#| fig-width: 8
+#| fig-height: 8
+
+bare(p_pairs)
+```
+
+A closer look at the same relationships: no strong pairwise structure, and the
+discreteness of pasture (and to a lesser extent water) management is visible in
+the point grids.
+
+## Representativeness of the matched farms
+
+```{r}
+#| label: fig-matched
+#| fig-width: 8
+#| fig-height: 6
+
+bare(p_matched_compare)
+```
+
+The `r nrow(Farm_div_unmatched)` farms dropped for lacking a bird-diversity
+estimate do not look systematically different on the diversification indices from
+the `r nrow(Farm_div_matched)` retained farms, so the matched subset is
+reasonably representative of the survey.
+
+{{< pagebreak >}}
+
+# Variation by ecoregion
+
+## Share of variation that is between-ecoregion
+
+```{r}
+#| label: tbl-variance
+
+Ecoregion_variance %>%
+  arrange(desc(R2_ecoregion)) %>%
+  kable(
+    col.names = c("Type", "Variable", "n", "R² (ecoregion)", "Kruskal–Wallis p"),
+    caption = "R² of `variable ~ Ecoregion`: the fraction of each variable's farm-to-farm variation that is explained by which ecoregion the farm is in."
+  )
+```
+
+Bird diversity is strongly ecoregion-structured (R² $\approx$ 0.30–0.45). Among the
+management indices, **water and pasture management are similarly ecoregion-bound**
+(R² $\approx$ 0.34–0.35), whereas **land use and "all practices" are essentially not**
+(R² $\approx$ 0.08–0.10, not significant). Elevation is almost entirely between-ecoregion
+(R² $\approx$ 0.79); canopy cover is the least ecoregion-bound covariate (R² $\approx$ 0.14).
+
+## Management diversification by ecoregion
+
+```{r}
+#| label: fig-div-bars
+#| fig-width: 8
+#| fig-height: 6.5
+
+bare(p_div_bars)
+```
+
+```{r}
+#| label: fig-div-box
+#| fig-width: 8
+#| fig-height: 6.5
+
+bare(p_div_box)
+```
+
+Ecoregions are ordered left-to-right by ascending mean bird richness. Water and
+pasture management climb along that order (lowest in Boyacá-Santander / Bajo
+Magdalena, highest in Cafetera / Piedemonte); land use and "all practices" stay
+roughly flat, and land use is if anything slightly *higher* in the low-diversity
+ecoregions.
+
+## Bird diversity by ecoregion (same farms)
+
+```{r}
+#| label: fig-bird-bars
+#| fig-width: 8
+#| fig-height: 4
+
+bare(p_bird_bars)
+```
+
+All three Hill numbers rise across the ordered ecoregions (richness by
+construction of the ordering; Shannon and Simpson track it closely).
+
+## Farm environmental covariates by ecoregion
+
+```{r}
+#| label: fig-covar-bars
+#| fig-width: 8
+#| fig-height: 4
+
+bare(p_covar_bars)
+```
+
+Median elevation and biomass differ sharply between ecoregions (elevation almost
+defines them); median canopy cover overlaps much more, varying mostly within
+ecoregions.
+
+## Ecoregion signal side by side
+
+```{r}
+#| label: fig-signal
+#| fig-width: 9
+#| fig-height: 4.5
+
+bare(p_std)
+```
+
+Each variable's ecoregion means, z-scored onto a common axis. The bird-diversity
+lines rise smoothly; water and pasture management have a similar rising shape
+(confounded with ecoregion), while land use and "all practices" do not. Elevation
+and biomass peak in the high-elevation ecoregions rather than tracking the bird
+gradient.
+
+# Takeaway
+
+At this scale, **land-use diversification and the overall "all practices" index
+are the indices with usable within-ecoregion variation** — a model that accounts
+for ecoregion (or the climate/topography it proxies) can still estimate an
+association for those. Water and pasture management are largely a
+between-ecoregion story and will be hard to separate from ecoregion itself.

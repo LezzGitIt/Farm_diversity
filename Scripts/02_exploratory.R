@@ -53,6 +53,14 @@ bird_metric_labels <- c(
   Simpson_mean = "Simpson (q = 2)"
 )
 
+## Farm-level environmental covariates (median summary per farm), for the by-ecoregion comparison
+covar_names <- c("WVCC_median", "DEM_median", "Biomasa_median")
+covar_labels <- c(
+  WVCC_median = "Canopy cover (WVCC)",
+  DEM_median = "Elevation (DEM)",
+  Biomasa_median = "Biomass"
+)
+
 ## Panel order: specific practice groups first, overall index last
 div_level_order <- unname(div_index_labels)
 
@@ -150,6 +158,11 @@ Bird_long <- Farm_div_eco %>%
   pivot_longer(all_of(bird_metric_names), names_to = "Metric", values_to = "Value") %>%
   mutate(Metric = factor(recode(Metric, !!!bird_metric_labels), levels = unname(bird_metric_labels)))
 
+Covar_long <- Farm_div_eco %>%
+  select(Id_gcs, Ecoregion, all_of(covar_names)) %>%
+  pivot_longer(all_of(covar_names), names_to = "Covariate", values_to = "Value") %>%
+  mutate(Covariate = factor(recode(Covariate, !!!covar_labels), levels = unname(covar_labels)))
+
 # By ecoregion: group summaries and variance explained ----
 
 ## One reusable summary so the index and bird-metric plots share identical error-bar logic
@@ -171,6 +184,7 @@ summarise_by_group <- function(df, group_col) {
 
 Div_summary <- summarise_by_group(Div_long, Index)
 Bird_summary <- summarise_by_group(Bird_long, Metric)
+Covar_summary <- summarise_by_group(Covar_long, Covariate)
 
 ## For each index / bird metric: R-squared of `response ~ Ecoregion` (share of variation that is between-ecoregion) plus a Kruskal-Wallis test (rank-based, robust to the bounded [0-1] indices and small groups)
 variance_explained_by_ecoregion <- function(df, group_col) {
@@ -188,7 +202,8 @@ variance_explained_by_ecoregion <- function(df, group_col) {
 
 Ecoregion_variance <- bind_rows(
   variance_explained_by_ecoregion(Div_long, Index) %>% mutate(Type = "Management diversification"),
-  variance_explained_by_ecoregion(Bird_long, Metric) %>% mutate(Type = "Bird diversity")
+  variance_explained_by_ecoregion(Bird_long, Metric) %>% mutate(Type = "Bird diversity"),
+  variance_explained_by_ecoregion(Covar_long, Covariate) %>% mutate(Type = "Farm covariate")
 ) %>%
   relocate(Type) %>%
   mutate(across(c(R2_ecoregion, KW_p_value), ~ round(.x, 3)))
@@ -282,31 +297,62 @@ p_bird_bars <- ggplot(Bird_summary, aes(x = Ecoregion, y = Mean, fill = Ecoregio
 ggsave("Figures/Bird_diversity_by_ecoregion.png", p_bird_bars, bg = "white", width = 10, height = 4.5)
 print(p_bird_bars)
 
-# By ecoregion: standardized signal, management vs birds side by side ----
+# By ecoregion: farm environmental covariates (median canopy cover, elevation, biomass) ----
 
-## z-score each variable across farms, average by ecoregion, and show management indices and bird metrics as two panels of lines on a common axis; parallel up/down movement across ecoregions = the two are confounded
+## These are the mechanisms Ecoregion partly stands in for; showing they are also ecoregion-structured motivates swapping Ecoregion for climate/topography in the linking model
+p_covar_bars <- ggplot(Covar_summary, aes(x = Ecoregion, y = Mean, fill = Ecoregion)) +
+  geom_col(width = 0.7, alpha = 0.85) +
+  geom_errorbar(aes(ymin = CI_lower, ymax = CI_upper), width = 0.25) +
+  geom_jitter(
+    data = Covar_long %>% filter(!is.na(Value)),
+    aes(x = Ecoregion, y = Value), inherit.aes = FALSE,
+    width = 0.12, height = 0, alpha = 0.35, size = 1
+  ) +
+  facet_wrap(~Covariate, scales = "free_y") +
+  ecoregion_fill +
+  labs(
+    x = NULL, y = "Farm median",
+    title = "Farm environmental covariates by ecoregion",
+    subtitle = "Median woody-vegetation canopy cover, elevation, and biomass per farm"
+  ) +
+  theme(legend.position = "none") +
+  tilted_x +
+  roomy_margin
+ggsave("Figures/Covariates_by_ecoregion.png", p_covar_bars, bg = "white", width = 10, height = 4.5)
+print(p_covar_bars)
+
+# By ecoregion: standardized signal, management vs birds vs covariates side by side ----
+
+## z-score each variable across farms, average by ecoregion, and show management indices, bird metrics and farm covariates as panels of lines on a common axis; parallel up/down movement across ecoregions = the two are confounded
 Standardized_means <- bind_rows(
   Div_long %>% rename(Variable = Index) %>% mutate(Type = "Management diversification"),
-  Bird_long %>% rename(Variable = Metric) %>% mutate(Type = "Bird diversity")
+  Bird_long %>% rename(Variable = Metric) %>% mutate(Type = "Bird diversity"),
+  Covar_long %>% rename(Variable = Covariate) %>% mutate(Type = "Farm covariate")
 ) %>%
   filter(!is.na(Value)) %>%
   mutate(Value_z = as.numeric(scale(Value)), .by = Variable) %>%
   summarize(Mean_z = mean(Value_z), .by = c(Type, Variable, Ecoregion)) %>%
-  mutate(Type = factor(Type, levels = c("Management diversification", "Bird diversity")))
+  mutate(Type = factor(Type, levels = c("Management diversification", "Bird diversity", "Farm covariate")))
 
-p_std <- ggplot(Standardized_means, aes(x = Ecoregion, y = Mean_z, color = Variable, group = Variable)) +
+## One line per variable, coloured by family; each family gets its own panel so lines do not overplot and the panel-to-panel shape comparison is the whole point
+p_std <- ggplot(Standardized_means, aes(x = Ecoregion, y = Mean_z, group = Variable, color = Type)) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "grey60") +
-  geom_line(linewidth = 1) +
+  geom_line(linewidth = 1, alpha = 0.8) +
   geom_point(size = 2.5) +
   facet_wrap(~Type) +
-  scale_color_brewer(palette = "Set2", name = NULL) +
+  scale_color_manual(values = c(
+    "Management diversification" = "#1b7837",
+    "Bird diversity" = "#762a83",
+    "Farm covariate" = "#b35806"
+  )) +
   labs(
     x = NULL, y = "Ecoregion mean (z-scored across farms)",
-    title = "Ecoregion signal: management diversification vs bird diversity",
-    subtitle = "Ecoregions ordered by ascending bird richness. Parallel trends across panels = confounding."
+    title = "Ecoregion signal: management diversification vs bird diversity vs farm covariates",
+    subtitle = "Ecoregions ordered by ascending bird richness. One line per variable. Parallel shapes across panels = confounding."
   ) +
+  theme(legend.position = "none") +
   tilted_x
-ggsave("Figures/Ecoregion_signal_management_vs_birds.png", p_std, bg = "white", width = 11, height = 5.5)
+ggsave("Figures/Ecoregion_signal_management_vs_birds.png", p_std, bg = "white", width = 12, height = 5)
 print(p_std)
 
 # Console summary ----

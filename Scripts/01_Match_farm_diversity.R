@@ -10,9 +10,12 @@ source("Scripts/Farm_diversity_fns.R")
 # Load data ----
 
 ### Farm management diversity indices (Land use / water / pasture / all practices), one row per farm
-Farm_div_raw <- read_excel("Data/Complementary_Biodiversity_Paper_Birds_MJE_June_2026.xls", sheet = "Sheet1")
+farm_div_xls <- "Data/Complementary_Biodiversity_Paper_Birds_MJE_June_2026.xls"
+## The provider renamed the sheets Sheet1 -> "Data" and Sheet2 -> "Dictionary"; accept either so the script works before and after that file update syncs
+sheet_or <- function(preferred, fallback) if (preferred %in% excel_sheets(farm_div_xls)) preferred else fallback
+Farm_div_raw <- read_excel(farm_div_xls, sheet = sheet_or("Data", "Sheet1"))
 ## Column-label lookup provided alongside the indices
-Farm_div_labels <- read_excel("Data/Complementary_Biodiversity_Paper_Birds_MJE_June_2026.xls", sheet = "Sheet2")
+Farm_div_labels <- read_excel(farm_div_xls, sheet = sheet_or("Dictionary", "Sheet2"))
 
 ### Bird taxonomic-diversity (Hill number) estimates per farm, produced by `Scripts/qmd/02_Analysis_iNEXT.qmd` into Derived/Excels/ (latest date-stamped export is picked up automatically)
 Tax_div_all_farms <- read_csv(latest_file("Derived/Excels", "^Tax_div_all_farms_.*\\.csv$"), show_col_types = FALSE)
