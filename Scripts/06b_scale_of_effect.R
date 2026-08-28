@@ -2,15 +2,15 @@
 
 ### For each concentric-disc radius from Scripts/06a_Extract_cc_buff.R, fit a mixed model of assemblage-level diversity on standardized canopy cover at that radius, and read off which radius adds the most explained variance (largest gain in marginal R^2 over a matching null without the canopy term; equivalently the largest AIC improvement). That radius is the "scale of effect" for canopy cover.
 
-### Five model specifications, so the scale peak and the canopy effect can be judged against how strongly other drivers are controlled for:
-###   sampling        canopy + log(Num_pc)                              + (1|CollectorXyear)
+### Every model also controls for sampling effort (log number of point counts), the number of habitat types sampled, and a cyclic term on the assemblage's mean day of year (a Nearctic-migrant-season proxy). Five region-adjustment specifications:
+###   sampling        canopy                                            + (1|CollectorXyear)
 ###   sampling_farm   "                                                  + (1|CollectorXyear) + (1|Id_gcs)
-###   topography      canopy + log(Num_pc) + elevation + precipitation   + (1|CollectorXyear)
+###   topography      canopy + elevation + precipitation                 + (1|CollectorXyear)
 ###   topography_farm "                                                  + (1|CollectorXyear) + (1|Id_gcs)
-###   within_eco      canopy_within_ecoregion + log(Num_pc) + Ecoregion  + (1|CollectorXyear)
+###   within_eco      canopy_within_ecoregion + Ecoregion                + (1|CollectorXyear)
 ### `within_eco` is a Mundlak-style within-region check: canopy is centred on its ecoregion mean, and Ecoregion (fixed) absorbs all between-region variation, so the canopy coefficient is the effect of a farm being more wooded than its regional peers.
 
-### Primary response: q = 0 non-asymptotic richness (`No_Asy_TD`, coverage65 export). q = 1 / q = 2 asymptotic diversity are run alongside.
+### Primary response: q = 0 non-asymptotic richness (`No_Asy_TD`, coverage65 export). q = 1 / q = 2 asymptotic diversity are run alongside. The 3 Ref_* reference sites (not SCR farms) are dropped.
 
 # Setup ----
 library(tidyverse)
@@ -54,29 +54,43 @@ Assemblage_surveys <- read_csv(paste0(wrangling_excels, "Event_covs.csv"), show_
   )
 
 ## Diversity estimates: q = 0 from the coverage65 export, q = 1 / q = 2 (asymptotic) from all_farms
+all_farms_export <- latest_file("Derived/Excels", "^Tax_div_all_farms_.*\\.csv$")
+
 Td_q0 <- read_csv(latest_file("Derived/Excels", "^Tax_div_coverage65_.*\\.csv$"), show_col_types = FALSE) %>%
   filter(Order.q == 0) %>%
   transmute(Assemblage, richness_q0 = No_Asy_TD)
 
-Td_q12 <- read_csv(latest_file("Derived/Excels", "^Tax_div_all_farms_.*\\.csv$"), show_col_types = FALSE) %>%
+Td_q12 <- read_csv(all_farms_export, show_col_types = FALSE) %>%
   filter(Order.q %in% c(1, 2)) %>%
   mutate(metric = if_else(Order.q == 1, "shannon_q1", "simpson_q2")) %>%
   select(Assemblage, metric, TD_asy) %>%
   pivot_wider(names_from = metric, values_from = TD_asy)
 
+## Number of habitat types sampled per assemblage (constant across Order.q)
+Assemblage_numhab <- read_csv(all_farms_export, show_col_types = FALSE) %>%
+  distinct(Assemblage, Num.hab)
+
 # Assemble the modelling frame ----
 
-## Canopy is already per assemblage (07); attach the collector-x-year batch key, sampling effort, farm covariates, and the diversity responses
+## Canopy is already per assemblage (06a); attach the collector-x-year batch key, sampling effort, mean day of year, farm covariates, habitat count, and the diversity responses
 Assemblage_keys <- Assemblage_surveys %>%
   summarize(CollectorXyear = first(CollectorXyear),
-            Num_pc = n_distinct(Id_muestreo), .by = c(Assemblage, Id_gcs))
+            Num_pc = n_distinct(Id_muestreo),
+            doy = mean(Julian_day, na.rm = TRUE), .by = c(Assemblage, Id_gcs))
 
 Scale_data <- Canopy_by_scale %>%
+  filter(!str_detect(Id_gcs, "^Ref")) %>%
   left_join(Assemblage_keys, by = c("Assemblage", "Id_gcs")) %>%
   left_join(Farm_covariates, by = "Id_gcs") %>%
+  left_join(Assemblage_numhab, by = "Assemblage") %>%
   left_join(Td_q0, by = "Assemblage") %>%
   left_join(Td_q12, by = "Assemblage") %>%
-  mutate(num_pc_log = log(Num_pc))
+  mutate(
+    num_pc_log = log(Num_pc),
+    num_hab_num = as.numeric(as.character(Num.hab)),
+    doy_sin = sin(2 * pi * doy / 365),
+    doy_cos = cos(2 * pi * doy / 365)
+  )
 
 stopifnot(sum(is.na(Scale_data$Ecoregion)) == 0)
 
@@ -87,14 +101,18 @@ cat("Assemblages with canopy at all radii:", n_distinct(Scale_data$Assemblage),
 # Model specifications ----
 
 ## Each spec: the fixed effects besides the focal canopy term, the random-effect terms, and which column is the focal canopy term
+## Every spec carries the same sampling / seasonal controls; they differ only in how region is adjusted for
+sampling_controls <- "num_pc_log_z + num_hab_z + doy_sin + doy_cos"
 specs <- tribble(
-  ~spec,             ~other_fixed,                    ~re,                                    ~focal,
-  "sampling",        "num_pc_log_z",                  "(1 | CollectorXyear)",                  "canopy_z",
-  "sampling_farm",   "num_pc_log_z",                  "(1 | CollectorXyear) + (1 | Id_gcs)",   "canopy_z",
-  "topography",      "num_pc_log_z + elev_z + precip_z", "(1 | CollectorXyear)",               "canopy_z",
-  "topography_farm", "num_pc_log_z + elev_z + precip_z", "(1 | CollectorXyear) + (1 | Id_gcs)", "canopy_z",
-  "within_eco",      "num_pc_log_z + Ecoregion",      "(1 | CollectorXyear)",                  "canopy_within_z"
-)
+  ~spec,             ~region_fixed,          ~re,                                    ~focal,
+  "sampling",        NA,                     "(1 | CollectorXyear)",                  "canopy_z",
+  "sampling_farm",   NA,                     "(1 | CollectorXyear) + (1 | Id_gcs)",   "canopy_z",
+  "topography",      "elev_z + precip_z",    "(1 | CollectorXyear)",                  "canopy_z",
+  "topography_farm", "elev_z + precip_z",    "(1 | CollectorXyear) + (1 | Id_gcs)",   "canopy_z",
+  "within_eco",      "Ecoregion",            "(1 | CollectorXyear)",                  "canopy_within_z"
+) %>%
+  mutate(other_fixed = if_else(is.na(region_fixed), sampling_controls,
+                               paste(sampling_controls, region_fixed, sep = " + ")))
 
 # Fit one radius x response x spec ----
 
@@ -113,12 +131,14 @@ fit_lmer <- function(formula_text, data) {
 
 fit_scale_model <- function(radius, response_col, spec, other_fixed, re, focal) {
   d <- Scale_data %>%
-    filter(radius_m == radius, !is.na(.data[[response_col]]), !is.na(canopy_cover)) %>%
+    filter(radius_m == radius, !is.na(.data[[response_col]]), !is.na(canopy_cover),
+           !is.na(doy_sin), !is.na(num_hab_num)) %>%
     mutate(
       y = log(.data[[response_col]]),
       canopy_z = as.numeric(scale(canopy_cover)),
       canopy_within_z = as.numeric(scale(canopy_cover - ave(canopy_cover, Ecoregion))),
       num_pc_log_z = as.numeric(scale(num_pc_log)),
+      num_hab_z = as.numeric(scale(num_hab_num)),
       elev_z = as.numeric(scale(Elev_mean)),
       precip_z = as.numeric(scale(Tot_prec_mean)),
       Ecoregion = factor(Ecoregion)
@@ -155,7 +175,7 @@ model_grid <- expand_grid(
   radius = radii_m
 )
 
-Scale_results <- pmap(model_grid, function(response, spec, other_fixed, re, focal, radius) {
+Scale_results <- pmap(model_grid, function(response, spec, other_fixed, re, focal, radius, ...) {
   fit_scale_model(radius, response, spec, other_fixed, re, focal)
 }) %>%
   list_rbind() %>%

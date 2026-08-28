@@ -1,25 +1,31 @@
-# Link bird taxonomic diversity to farm management diversification (Bayesian measurement-error models) ----
+# Bird taxonomic diversity vs farm management diversification (Bayesian measurement-error models) ----
 
-### Fits Bayesian hierarchical regressions of assemblage-level bird Hill-number diversity on the four farm management diversification indices, one index at a time, propagating the iNEXT bootstrap uncertainty of each diversity estimate into the response via `resp_se()`.
+### Fits Bayesian hierarchical regressions of assemblage-level bird Hill-number diversity on the four farm management diversification indices -- one index at a time -- propagating each iNEXT diversity estimate's bootstrap uncertainty into the response via `resp_se()`.
 
-### Two adjustment sets are fitted for every (Hill number x index) pair, so the management coefficient can be read against how region is controlled for:
-###   * "ecoregion" -- Ecoregion as a 5-level fixed effect (categorical adjustment; conservative, absorbs all between-region variation).
-###   * "climate"   -- farm mean annual precipitation + elevation instead of the label (mechanistic adjustment; leaves more between-region variation for management to attach to, at the risk of residual confounding).
+### For every (response x region-adjustment) a **no-index baseline** is fitted alongside the four index models, so the variance the indices add can be read against the variance region + sampling already explain (`bayes_R2`).
 
-### Response: log of the asymptotic Hill number (`TD_asy`) for q = 1 (Shannon) and q = 2 (Simpson), which the iNEXT4steps profiles in `00_bird_diversity_estimates.R` show do asymptote. Non-asymptotic richness (q = 0) is deferred until `02` re-exports a coverage-based SE for it (bundle with the nboot 100 -> 500 bump).
+### Region adjustment, two ways per fit:
+###   * "ecoregion" -- Ecoregion as a 5-level fixed effect (conservative; absorbs all between-region variation).
+###   * "climate"   -- farm mean precipitation + elevation instead of the label (mechanistic; leaves more between-region variation for management, at the risk of residual confounding).
+### A third "ecoregion_numhab" spec adds the number of habitat types sampled -- a SENSITIVITY check only: Num.hab is partly a mediator of the land-use index (a more land-use-diversified farm has its points across more habitats), so it is not in the primary models.
+
+### Responses (all log-transformed, modelled with `resp_se(se, sigma = TRUE)`):
+###   * richness  -- q = 0 non-asymptotic `No_Asy_TD` at Cmax + its coverage-based SE (from the coverage65 export)
+###   * shannon   -- q = 1 asymptotic `TD_asy` + bootstrap SE (from the all_farms export)
+###   * simpson   -- q = 2 asymptotic `TD_asy` + bootstrap SE
+### q = 1 / q = 2 use the asymptotic estimate because those profiles asymptote; q = 0 does not, so it uses the coverage-standardised estimate.
 
 ### Model per fit:
-###   log(TD_asy) | resp_se(se_log, sigma = TRUE) ~ index_z + <adjustment> + log(Num_pc)_z + (1 | Id_gcs) + (1 | CollectorXyear)
-### `Id_gcs` is nested in Ecoregion automatically (each farm sits in one ecoregion, farm IDs are globally unique). `CollectorXyear` is a batch effect for the 8 [dataset x year-group] cohorts, which used materially different field protocols (see the data-paper summary in Project_notes.md). Fixed `Year` is omitted -- near-collinear with data collector.
+###   log(response) | resp_se(se_log, sigma = TRUE) ~ [index_z +] <region adjustment> + log(Num_pc)_z + doy_sin + doy_cos + (1 | Id_gcs) + (1 | CollectorXyear)
+### `Id_gcs` is nested in Ecoregion automatically. `CollectorXyear` is a batch effect for the [dataset x year-group] cohorts (different field protocols). `doy_sin` / `doy_cos` are a cyclic term on the assemblage's mean day of year -- a control for the Nearctic migrant influx (Oct-Mar). Fixed `Year` is omitted (near-collinear with data collector).
 
 # Setup ----
 library(tidyverse)
 library(brms)
-library(tidybayes)
 
 source("Scripts/Farm_diversity_fns.R")
 
-### `conflicted` is deliberately not loaded here: its symbol shims break rstan's Stan-model compilation (rstan scans every package with `apropos()`/`exists()`, tripping on ambiguous names like `ar` / `lag`). This script attaches no package that masks the dplyr verbs, so plain tidyverse ordering is enough.
+### `conflicted` is deliberately not loaded: its symbol shims break rstan's Stan-model compilation. This script attaches no package that masks the dplyr verbs.
 
 options(mc.cores = 4, brms.backend = "rstan")
 
@@ -35,193 +41,207 @@ iter <- 3000
 warmup <- 1000
 adapt_delta <- 0.97
 
-hill_numbers <- c(Shannon = 1, Simpson = 2)
 div_indices <- c("Land_use_div", "Water_mgmt_div", "Pasture_mgmt_div", "All_practices_div")
-adjustments <- c("ecoregion", "climate")
+
+## Region-adjustment specs: the non-focal fixed effects and whether this is a sensitivity spec
+specs <- tribble(
+  ~spec,               ~region_fixed,                    ~extra_fixed,   ~sensitivity,
+  "ecoregion",         "Ecoregion",                      "",             FALSE,
+  "climate",           "Tot_prec_mean_z + Elev_mean_z",  "",             FALSE,
+  "ecoregion_numhab",  "Ecoregion",                      "Num_hab_z",    TRUE
+)
 
 # Load data ----
 
-## Farm-level table: the four diversification indices, ecoregion, and farm climate covariates, restricted to farms with a bird biodiversity estimate (Scripts/02_match_farm_diversity.R)
+## Farm-level table: the four diversification indices, ecoregion, farm climate covariates; farms with a bird biodiversity estimate (Scripts/02_match_farm_diversity.R)
 Farm_level <- read_csv("Derived/Excels/Farm_diversity_matched.csv", show_col_types = FALSE) %>%
   mutate(Id_gcs = as.character(Id_gcs))
 
-## Assemblage-level bird diversity estimates with their iNEXT bootstrap SE (latest date-stamped export from 00_bird_diversity_estimates.R)
-Tax_div <- read_csv(latest_file("Derived/Excels", "^Tax_div_all_farms_.*\\.csv$"), show_col_types = FALSE) %>%
-  mutate(Id_gcs = as.character(Id_gcs))
+## Assemblage diversity: q = 1 / q = 2 asymptotic from all_farms, q = 0 non-asymptotic from coverage65 (latest date-stamped exports from Scripts/00_bird_diversity_estimates.R)
+Td_asy <- read_csv(latest_file("Derived/Excels", "^Tax_div_all_farms_.*\\.csv$"), show_col_types = FALSE) %>%
+  mutate(Id_gcs = as.character(Id_gcs)) %>%
+  filter(Order.q %in% c(1, 2)) %>%
+  transmute(Assemblage, Id_gcs, Uniq_db, Ano_grp, Season, Num.hab,
+            Hill = if_else(Order.q == 1, "shannon", "simpson"),
+            response = TD_asy, response_se = `s.e.`)
 
-## Number of distinct point-count locations contributing to each assemblage -- a sampling-effort / spatial-heterogeneity covariate that was a strong predictor in Scripts/qmd/03_Farm_diversity.qmd. Built the same way there: distinct Id_muestreo per [Uniq_db . Id_gcs . Ano_grp . Season].
+Td_rich <- read_csv(latest_file("Derived/Excels", "^Tax_div_coverage65_.*\\.csv$"), show_col_types = FALSE) %>%
+  mutate(Id_gcs = as.character(Id_gcs)) %>%
+  filter(Order.q == 0) %>%
+  transmute(Assemblage, Id_gcs, Uniq_db, Ano_grp, Season, Num.hab,
+            Hill = "richness",
+            response = No_Asy_TD, response_se = No_Asy_TD_se)
+
+Tax_div_long <- bind_rows(Td_rich, Td_asy)
+
+## Assemblage sampling covariates from the point-count events: number of distinct point counts, and mean day of year (migrant-season proxy)
 wrangling_excels <- "../Ssp-bird-data-wrangling/Derived/Excels/"
-Assemblage_effort <- read_csv(paste0(wrangling_excels, "Site_covs.csv"), show_col_types = FALSE) %>%
+Assemblage_covs <- read_csv(paste0(wrangling_excels, "Site_covs.csv"), show_col_types = FALSE) %>%
   select(Id_muestreo_no_dc, Id_gcs) %>%
   left_join(read_csv(paste0(wrangling_excels, "Event_covs.csv"), show_col_types = FALSE),
             by = "Id_muestreo_no_dc") %>%
-  mutate(Assemblage = str_replace_all(
-    paste(Uniq_db, Id_gcs, Ano_grp, Season, sep = "."), " |-", "_"
-  )) %>%
-  summarize(Num_pc = n_distinct(Id_muestreo), .by = Assemblage)
+  filter(!is.na(Ano)) %>%
+  mutate(Assemblage = str_replace_all(paste(Uniq_db, Id_gcs, Ano_grp, Season, sep = "."), " |-", "_")) %>%
+  summarize(Num_pc = n_distinct(Id_muestreo),
+            doy = mean(Julian_day, na.rm = TRUE), .by = Assemblage)
 
-# Build the assemblage-level modelling frame ----
+# Build the modelling frame ----
 
-## One row per [assemblage x Hill number], carrying the response, its log-scale SE, the farm predictors, and the grouping factors. Restricted to the matched farms and to q = 1 / q = 2.
-Model_data <- Tax_div %>%
-  filter(Order.q %in% hill_numbers) %>%
+## One row per [assemblage x response], with predictors, the log-scale response + SE, and the grouping factors
+Model_data <- Tax_div_long %>%
   semi_join(Farm_level, by = "Id_gcs") %>%
-  left_join(Assemblage_effort, by = "Assemblage") %>%
+  left_join(Assemblage_covs, by = "Assemblage") %>%
   left_join(
     Farm_level %>% select(Id_gcs, Ecoregion, all_of(div_indices),
                           Elev_mean, Avg_temp_mean, Tot_prec_mean),
     by = "Id_gcs"
   ) %>%
   mutate(
-    Hill = fct_recode(factor(Order.q), Shannon = "1", Simpson = "2"),
     CollectorXyear = paste(Uniq_db, Ano_grp, sep = "_"),
-    log_TD = log(TD_asy),
-    ## Delta-method SE of log(TD_asy): SE(log X) ~= SE(X) / X. Adequate where the CV is small (median ~0.07-0.10 here); the few high-CV assemblages get down-weighted, which is the point.
-    se_log = `s.e.` / TD_asy,
-    Num_pc_log = log(Num_pc)
+    Num_hab_num = as.numeric(as.character(Num.hab)),
+    log_response = log(response),
+    ## delta-method SE of log(response): SE(log X) ~= SE(X) / X
+    se_log = response_se / response,
+    Num_pc_log = log(Num_pc),
+    ## cyclic day of year -- captures the migrant-season wave without assuming linearity
+    doy_sin = sin(2 * pi * doy / 365),
+    doy_cos = cos(2 * pi * doy / 365)
   )
 
-## z-score the predictors (over the modelling rows) so the priors below are on a common scale and the intercept is interpretable at the mean farm
-predictors_to_scale <- c(div_indices, "Elev_mean", "Avg_temp_mean", "Tot_prec_mean", "Num_pc_log")
+## z-score continuous predictors across the modelling rows (per-response scaling would fragment the interpretation; the row set is near-identical across responses)
+predictors_to_scale <- c(div_indices, "Elev_mean", "Avg_temp_mean", "Tot_prec_mean",
+                         "Num_pc_log", "Num_hab_num")
 Model_data <- Model_data %>%
-  mutate(across(all_of(predictors_to_scale), ~ as.numeric(scale(.x)), .names = "{.col}_z"))
+  mutate(across(all_of(predictors_to_scale), ~ as.numeric(scale(.x)), .names = "{.col}_z")) %>%
+  rename(Num_hab_z = Num_hab_num_z)
 
-## Persist the modelling frame (raw + z-scored predictors, response, SE) so Scripts/05_farm_mgmt_plots.R can map standardized axes back to raw index units and draw partial residuals without re-deriving the scaling
+## Persist the frame so Scripts/05_farm_mgmt_plots.R can map standardized axes to raw units
 Model_data %>%
-  select(Assemblage, Id_gcs, Uniq_db, Ano_grp, Season, CollectorXyear, Hill,
-         Ecoregion, TD_asy, `s.e.`, log_TD, se_log, Num_pc,
+  select(Assemblage, Id_gcs, Uniq_db, Ano_grp, Season, CollectorXyear, Hill, Ecoregion,
+         response, response_se, log_response, se_log, Num_pc, doy,
          all_of(predictors_to_scale), ends_with("_z")) %>%
-  write_csv("Derived/Excels/Linking_model_data.csv")
+  write_csv("Derived/Excels/Farm_mgmt_model_data.csv")
 
-# Priors (weakly informative, on the log-diversity scale) ----
+# Priors (weakly informative, log-diversity scale) ----
 
-link_priors <- c(
+mod_priors <- c(
   prior(student_t(3, 3, 2.5), class = "Intercept"),
   prior(normal(0, 0.75), class = "b"),
   prior(exponential(1), class = "sd"),
   prior(exponential(1), class = "sigma")
 )
 
-# Model formulas ----
+# Model formula + data frame for one fit ----
 
-## The focal index is always carried in a generic column `focal_z`, so all "ecoregion" fits share one compiled Stan model and all "climate" fits share another
-formula_for <- function(adjustment) {
-  rhs <- switch(
-    adjustment,
-    ecoregion = "focal_z + Ecoregion + Num_pc_log_z + (1 | Id_gcs) + (1 | CollectorXyear)",
-    climate   = "focal_z + Tot_prec_mean_z + Elev_mean_z + Num_pc_log_z + (1 | Id_gcs) + (1 | CollectorXyear)"
-  )
-  bf(as.formula(paste0("log_TD | resp_se(se_log, sigma = TRUE) ~ ", rhs)))
+## The focal index is carried in a generic column `focal_z`; index == "baseline" drops it. Formulas with identical structure share a compiled Stan model.
+formula_for <- function(index, region_fixed, extra_fixed) {
+  terms <- c(if (index != "baseline") "focal_z",
+             region_fixed,
+             if (nzchar(extra_fixed)) extra_fixed,
+             "Num_pc_log_z", "doy_sin", "doy_cos",
+             "(1 | Id_gcs)", "(1 | CollectorXyear)")
+  bf(as.formula(paste0("log_response | resp_se(se_log, sigma = TRUE) ~ ",
+                       paste(terms, collapse = " + "))))
 }
 
-## Rows for one (Hill number, index, adjustment) fit: drop assemblages missing the focal index (or the climate covariates for the climate adjustment)
-frame_for <- function(hill, index, adjustment) {
+frame_for <- function(hill, index, region_fixed, extra_fixed) {
   df <- Model_data %>%
-    filter(Hill == hill) %>%
-    mutate(focal_z = .data[[paste0(index, "_z")]]) %>%
-    filter(!is.na(focal_z), !is.na(se_log), !is.na(Num_pc_log_z))
-  if (adjustment == "climate") {
+    filter(Hill == hill, !is.na(se_log), !is.na(Num_pc_log_z), !is.na(doy_sin))
+  if (index != "baseline") {
+    df <- df %>% mutate(focal_z = .data[[paste0(index, "_z")]]) %>% filter(!is.na(focal_z))
+  }
+  if (str_detect(region_fixed, "prec|Elev")) {
     df <- df %>% filter(!is.na(Tot_prec_mean_z), !is.na(Elev_mean_z))
   }
+  if (nzchar(extra_fixed)) df <- df %>% filter(!is.na(Num_hab_z))
   df
 }
 
 # Fit the grid ----
 
-## First fit of each adjustment structure compiles; the rest reuse that compiled model via update(recompile = FALSE). file = caches every fit to Derived/models/ so re-runs load from disk.
 fit_grid <- expand_grid(
-  hill = names(hill_numbers),
-  index = div_indices,
-  adjustment = adjustments
+  hill = c("richness", "shannon", "simpson"),
+  index = c("baseline", div_indices),
+  specs
 ) %>%
-  arrange(adjustment, hill, index)
+  ## sensitivity spec: skip the baseline (only need it to sit the index coefficients against)
+  filter(!(sensitivity & index == "baseline")) %>%
+  arrange(spec, hill, index) %>%
+  mutate(key = paste(hill, index, spec, sep = "__"),
+         structure = paste(spec, if_else(index == "baseline", "baseline", "index"), sep = "__"))
 
-fit_link_model <- function(hill, index, adjustment, base_fit) {
-  file <- sprintf("Derived/models/link_%s_%s_%s", tolower(hill), index, adjustment)
-  frame <- frame_for(hill, index, adjustment)
+fit_one <- function(hill, index, spec, region_fixed, extra_fixed, sensitivity, key, structure, base_fit) {
+  file <- sprintf("Derived/models/mod_%s", key)
+  frame <- frame_for(hill, index, region_fixed, extra_fixed)
+  common <- list(chains = chains, iter = iter, warmup = warmup, seed = 1989,
+                 control = list(adapt_delta = adapt_delta), refresh = 0, silent = 2,
+                 file = file, file_refit = "on_change")
   if (is.null(base_fit)) {
-    brm(
-      formula = formula_for(adjustment), data = frame, prior = link_priors,
-      chains = chains, iter = iter, warmup = warmup, seed = 1989,
-      control = list(adapt_delta = adapt_delta), refresh = 0, silent = 2,
-      file = file, file_refit = "on_change"
-    )
+    do.call(brm, c(list(formula = formula_for(index, region_fixed, extra_fixed),
+                        data = frame, prior = mod_priors), common))
   } else {
-    ## reuse the already-compiled Stan model of the first fit with this adjustment structure
-    update(
-      base_fit, newdata = frame, recompile = FALSE,
-      chains = chains, iter = iter, warmup = warmup, seed = 1989,
-      control = list(adapt_delta = adapt_delta), refresh = 0, silent = 2,
-      file = file, file_refit = "on_change"
-    )
+    do.call(update, c(list(object = base_fit, newdata = frame, recompile = FALSE), common))
   }
 }
 
-link_fits <- vector("list", nrow(fit_grid))
-names(link_fits) <- with(fit_grid, paste(tolower(hill), index, adjustment, sep = "_"))
-base_fits <- list()
+mod_fits <- vector("list", nrow(fit_grid))
+names(mod_fits) <- fit_grid$key
+base_by_structure <- list()
 
 for (i in seq_len(nrow(fit_grid))) {
-  row <- fit_grid[i, ]
-  key <- row$adjustment
-  message(sprintf("[%d/%d] %s / %s / %s", i, nrow(fit_grid), row$hill, row$index, row$adjustment))
-  base <- base_fits[[key]]
-  fit <- fit_link_model(row$hill, row$index, row$adjustment, base_fit = base)
-  if (is.null(base)) base_fits[[key]] <- fit
-  link_fits[[i]] <- fit
+  row <- as.list(fit_grid[i, ])
+  message(sprintf("[%d/%d] %s", i, nrow(fit_grid), row$key))
+  base <- base_by_structure[[row$structure]]
+  fit <- fit_one(row$hill, row$index, row$spec, row$region_fixed, row$extra_fixed,
+                 row$sensitivity, row$key, row$structure, base_fit = base)
+  if (is.null(base)) base_by_structure[[row$structure]] <- fit
+  mod_fits[[row$key]] <- fit
 }
 
-# Collect coefficients ----
+# Collect coefficients + Bayesian R-squared ----
 
-## Posterior summary of every fixed effect from every fit, plus the posterior probability the effect is positive; the `focal_z` rows are the management-diversification result
-tidy_fixef <- function(fit, hill, index, adjustment) {
+tidy_fixef <- function(fit) {
   draws <- as_draws_matrix(fit, variable = "^b_", regex = TRUE)
-  imap(
-    asplit(draws, 2),
-    ~ tibble(
-      term = str_remove(.y, "^b_"),
-      estimate = median(.x),
-      conf_low = quantile(.x, 0.05),
-      conf_high = quantile(.x, 0.95),
-      p_direction_pos = mean(.x > 0)
-    )
-  ) %>%
-    list_rbind() %>%
-    mutate(Hill = hill, Index = index, Adjustment = adjustment) %>%
-    select(Hill, Index, Adjustment, term, estimate, conf_low, conf_high, p_direction_pos)
+  imap(asplit(draws, 2), ~ tibble(
+    term = str_remove(.y, "^b_"),
+    estimate = median(.x), conf_low = quantile(.x, 0.05),
+    conf_high = quantile(.x, 0.95), p_direction_pos = mean(.x > 0)
+  )) %>% list_rbind()
 }
 
-Link_coefficients <- pmap(fit_grid, function(hill, index, adjustment) {
-  key <- paste(tolower(hill), index, adjustment, sep = "_")
-  tidy_fixef(link_fits[[key]], hill, index, adjustment)
+Model_summaries <- pmap(fit_grid, function(hill, index, spec, key, ...) {
+  fit <- mod_fits[[key]]
+  r2 <- bayes_R2(fit)[, "Estimate"]
+  tidy_fixef(fit) %>%
+    mutate(hill = hill, index = index, spec = spec,
+           n_obs = nobs(fit), bayes_R2 = r2,
+           max_rhat = round(max(rhat(fit), na.rm = TRUE), 3),
+           n_divergent = sum(subset(nuts_params(fit), Parameter == "divergent__")$Value)) %>%
+    relocate(hill, index, spec)
 }) %>%
   list_rbind() %>%
-  mutate(across(c(estimate, conf_low, conf_high, p_direction_pos), ~ round(.x, 4)))
+  mutate(across(c(estimate, conf_low, conf_high, p_direction_pos, bayes_R2), ~ round(.x, 4)))
 
-write_csv(Link_coefficients, "Derived/Excels/Linking_model_coefficients.csv")
+write_csv(Model_summaries, "Derived/Excels/Farm_mgmt_model_summaries.csv")
 
-# Convergence diagnostics ----
+# Report ----
 
-Link_diagnostics <- pmap(fit_grid, function(hill, index, adjustment) {
-  key <- paste(tolower(hill), index, adjustment, sep = "_")
-  fit <- link_fits[[key]]
-  s <- summary(fit)
-  tibble(
-    Hill = hill, Index = index, Adjustment = adjustment,
-    n_obs = nobs(fit),
-    max_rhat = max(rhat(fit), na.rm = TRUE),
-    min_bulk_ess = min(c(s$fixed[, "Bulk_ESS"], s$random$Id_gcs[, "Bulk_ESS"]), na.rm = TRUE),
-    n_divergent = sum(subset(nuts_params(fit), Parameter == "divergent__")$Value)
-  )
-}) %>%
-  list_rbind() %>%
-  mutate(across(c(max_rhat, min_bulk_ess), ~ round(.x, 3)))
+cat("\nBayesian R-squared: baseline (region + sampling only) vs + each index\n")
+Model_summaries %>%
+  distinct(hill, index, spec, n_obs, bayes_R2) %>%
+  filter(!str_detect(spec, "numhab")) %>%
+  pivot_wider(names_from = index, values_from = bayes_R2) %>%
+  print(n = Inf)
 
-print(Link_diagnostics, n = Inf)
-write_csv(Link_diagnostics, "Derived/Excels/Linking_model_diagnostics.csv")
-
-cat("\nManagement-diversification coefficients (focal_z), by spec:\n")
-Link_coefficients %>%
+cat("\nManagement-diversification coefficient (focal_z), by response x index x spec\n")
+Model_summaries %>%
   filter(term == "focal_z") %>%
-  arrange(Hill, Index, Adjustment) %>%
+  select(hill, index, spec, estimate, conf_low, conf_high, p_direction_pos, n_obs) %>%
+  arrange(spec, hill, index) %>%
+  print(n = Inf)
+
+cat("\nConvergence: max R-hat and divergences by fit\n")
+Model_summaries %>%
+  distinct(hill, index, spec, max_rhat, n_divergent) %>%
+  filter(max_rhat > 1.01 | n_divergent > 0) %>%
   print(n = Inf)
