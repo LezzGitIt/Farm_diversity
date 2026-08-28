@@ -40,6 +40,9 @@ Model_summaries <- read_csv("Derived/Excels/Farm_mgmt_model_summaries.csv", show
     Spec = recode(spec, !!!spec_labels)
   )
 
+## the primary figures use the full dataset; the on_farm subset feeds the distance-sensitivity figure only
+Full <- Model_summaries %>% filter(data_subset == "all")
+
 Model_data <- read_csv("Derived/Excels/Farm_mgmt_model_data.csv", show_col_types = FALSE)
 
 ## brms fits, keyed by the 04 filename convention mod_<hill>__<index>__<spec>.rds
@@ -48,7 +51,7 @@ mod_fits <- set_names(map(mod_fit_files, readRDS), str_remove(basename(mod_fit_f
 
 # Figure 1: management-diversification coefficient across specs ----
 
-p_index_effects <- Model_summaries %>%
+p_index_effects <- Full %>%
   filter(term == "focal_z", spec %in% c("ecoregion", "climate")) %>%
   ggplot(aes(estimate, fct_rev(Index), colour = Spec)) +
   geom_vline(xintercept = 0, linetype = "dashed", colour = "grey60") +
@@ -68,7 +71,7 @@ print(p_index_effects)
 # Figure 2: variance explained -- baseline vs + each index ----
 
 ## bayes_R2 of the no-index baseline (region + sampling + season) and of each index model, so the variance an index adds is visible.
-p_bayes_r2 <- Model_summaries %>%
+p_bayes_r2 <- Full %>%
   distinct(Hill, Index, Spec, spec, bayes_R2) %>%
   filter(spec %in% c("ecoregion", "climate")) %>%
   ggplot(aes(bayes_R2, fct_rev(Index), colour = Spec)) +
@@ -84,11 +87,32 @@ p_bayes_r2 <- Model_summaries %>%
 ggsave("Figures/Farm_mgmt_bayes_r2.png", p_bayes_r2, bg = "white", width = 10, height = 4)
 print(p_bayes_r2)
 
+# Figure 3a: distance-to-farm sensitivity ----
+
+## focal index coefficient on the full data vs on the on-farm-only subset (point counts averaging < 500 m from the farm)
+subset_labels <- c(all = "All assemblages", on_farm = "On-farm only (< 500 m)")
+p_dist_sensitivity <- Model_summaries %>%
+  filter(term == "focal_z", spec %in% c("ecoregion", "climate"), index != "baseline") %>%
+  mutate(Subset = recode(data_subset, !!!subset_labels)) %>%
+  ggplot(aes(estimate, fct_rev(Index), colour = Subset, shape = Subset)) +
+  geom_vline(xintercept = 0, linetype = "dashed", colour = "grey60") +
+  geom_pointrange(aes(xmin = conf_low, xmax = conf_high),
+                  position = position_dodge(width = 0.6), fatten = 2) +
+  facet_grid(Spec ~ Hill) +
+  scale_colour_manual(values = c("All assemblages" = "grey30", "On-farm only (< 500 m)" = "#d95f02"), name = NULL) +
+  scale_shape_manual(values = c(16, 17), name = NULL) +
+  labs(x = "Standardized effect on log diversity (median, 90% CrI)", y = NULL,
+       title = "Distance-to-farm sensitivity",
+       subtitle = "Index coefficient: full data vs assemblages whose point counts average < 500 m from the farm") +
+  theme(legend.position = "bottom")
+ggsave("Figures/Farm_mgmt_dist_sensitivity.png", p_dist_sensitivity, bg = "white", width = 10, height = 6)
+print(p_dist_sensitivity)
+
 # Figure 3: posterior predictive checks ----
 
-ppcheck_keys <- names(mod_fits) %>% keep(~ str_detect(.x, "__All_practices_div__(ecoregion|climate)$"))
+ppcheck_keys <- names(mod_fits) %>% keep(~ str_detect(.x, "__All_practices_div__(ecoregion|climate)__all$"))
 ppcheck_panels <- map(ppcheck_keys, function(key) {
-  parts <- str_match(key, "^mod_(richness|shannon|simpson)__.+__(ecoregion|climate)$")
+  parts <- str_match(key, "^mod_(richness|shannon|simpson)__.+__(ecoregion|climate)__all$")
   suppressWarnings(pp_check(mod_fits[[key]], ndraws = 100)) +
     labs(subtitle = paste0(hill_labels[[parts[2]]], " -- ", spec_labels[[parts[3]]])) +
     theme(legend.position = "none")
@@ -111,7 +135,7 @@ index_scaling <- Model_data %>%
   pivot_wider(names_from = stat, values_from = value)
 
 conditional_index_effect <- function(key) {
-  parts <- str_match(key, "^mod_(richness|shannon|simpson)__(.+)__(ecoregion|climate)$")
+  parts <- str_match(key, "^mod_(richness|shannon|simpson)__(.+)__(ecoregion|climate)__all$")
   index <- parts[3]
   sc <- index_scaling %>% filter(index == !!index)
   as_tibble(conditional_effects(mod_fits[[key]], effects = "focal_z")[["focal_z"]]) %>%
@@ -125,7 +149,7 @@ conditional_index_effect <- function(key) {
 }
 
 identifiable_keys <- names(mod_fits) %>%
-  keep(~ str_detect(.x, paste0("__(", paste(identifiable_indices, collapse = "|"), ")__(ecoregion|climate)$")))
+  keep(~ str_detect(.x, paste0("__(", paste(identifiable_indices, collapse = "|"), ")__(ecoregion|climate)__all$")))
 Conditional_lines <- map(identifiable_keys, conditional_index_effect) %>% list_rbind()
 
 Raw_points <- Model_data %>%

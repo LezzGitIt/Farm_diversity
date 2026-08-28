@@ -21,7 +21,7 @@ execute:
 ## Rebuild the figure objects by sourcing the plotting scripts (they read cached
 ## fits / refit fast lmer -- no brms resampling). Keeps the report in lock-step
 ## with the code.
-source("Scripts/05_farm_mgmt_plots.R")   # -> p_index_effects, p_bayes_r2, p_ppcheck, p_index_conditional
+source("Scripts/05_farm_mgmt_plots.R")   # -> p_index_effects, p_bayes_r2, p_dist_sensitivity, p_ppcheck, p_index_conditional
 source("Scripts/06b_scale_of_effect.R")  # -> p_scale_r2, p_scale_beta
 
 library(tidyverse)
@@ -29,8 +29,13 @@ library(knitr)
 
 bare <- function(p) p + labs(title = NULL, subtitle = NULL)
 
-mm  <- read_csv("Derived/Excels/Farm_mgmt_model_summaries.csv", show_col_types = FALSE)
-soe <- read_csv("Derived/Excels/Scale_effect_results.csv", show_col_types = FALSE)
+mm_all <- read_csv("Derived/Excels/Farm_mgmt_model_summaries.csv", show_col_types = FALSE)
+soe    <- read_csv("Derived/Excels/Scale_effect_results.csv", show_col_types = FALSE)
+
+## §2.1-2.2 and §2.4 describe the primary fits (full data); the on-farm subset feeds only the §2.3 distance-sensitivity subsection
+mm <- mm_all %>% filter(data_subset == "all")
+
+subset_lab <- c(all = "All assemblages", on_farm = "On-farm only (< 500 m)")
 
 hill_lab <- c(richness = "Richness (q = 0)", shannon = "Shannon (q = 1)", simpson = "Simpson (q = 2)")
 index_lab <- c(baseline = "(baseline)", Land_use_div = "Land use", Water_mgmt_div = "Water mgmt",
@@ -117,18 +122,50 @@ mm %>%
 bare(p_index_conditional)
 ```
 
+## Distance-to-farm sensitivity
+
+Some point counts were run off the nominal farm (`Distancia_farm` from the
+wrangling repo's `Site_covs.csv`). Averaging that distance to the assemblage and
+keeping only assemblages within 500 m of the farm on average, the index models
+for the two primary specs are refitted on that subset and the focal coefficient
+compared to the full-data fit. Point-count distances are near zero for most
+assemblages, so the subset drops only a handful.
+
+```{r}
+#| label: fig-dist-sens
+#| fig-width: 9
+#| fig-height: 6
+
+bare(p_dist_sensitivity)
+```
+
+```{r}
+#| label: tbl-dist-sens
+
+mm_all %>%
+  filter(term == "focal_z", spec %in% c("ecoregion", "climate"), index != "baseline") %>%
+  mutate(cell = sprintf("%+.3f [%+.3f, %+.3f] (n=%d)", estimate, conf_low, conf_high, n_obs)) %>%
+  select(hill, index, spec, data_subset, cell) %>%
+  pivot_wider(names_from = data_subset, values_from = cell) %>%
+  mutate(hill = recode(hill, !!!hill_lab), index = recode(index, !!!index_lab),
+         spec = recode(spec, !!!spec_lab)) %>%
+  arrange(spec, hill, index) %>%
+  kable(col.names = c("Response", "Index", "Region adj.", "All assemblages", "On-farm only"),
+        caption = "Focal index coefficient (median [90% CrI], n assemblages): full data vs on-farm-only subset.")
+```
+
 ## Diagnostics
 
 ```{r}
 #| label: tbl-diag
 
-mm %>%
-  distinct(hill, index, spec, n_obs, max_rhat, n_divergent) %>%
+mm_all %>%
+  distinct(hill, index, spec, data_subset, n_obs, max_rhat, n_divergent) %>%
   arrange(desc(max_rhat)) %>%
   slice_head(n = 8) %>%
   mutate(hill = recode(hill, !!!hill_lab), index = recode(index, !!!index_lab),
-         spec = recode(spec, !!!spec_lab)) %>%
-  kable(col.names = c("Response", "Index", "Spec", "n", "max R-hat", "div."),
+         spec = recode(spec, !!!spec_lab), data_subset = recode(data_subset, !!!subset_lab)) %>%
+  kable(col.names = c("Response", "Index", "Spec", "Subset", "n", "max R-hat", "div."),
         caption = "Eight fits with the highest R-hat.")
 ```
 
@@ -211,6 +248,8 @@ cat("- **Canopy scale of effect:** net of elevation + precipitation, bird divers
     "the range (best radius for q = 0 richness: ", best_soe$radius_m, " m, standardized effect +",
     round(best_soe$canopy_beta, 2), "). The within-ecoregion (Mundlak) effect is weak, so ",
     "much of it is a between-region landscape gradient.\n", sep = "")
-cat("- **Still to do:** the DAG; a Piedemonte-only cut; a distance-to-farm covariate; ",
-    "radii beyond 10 km for a cleaner scale-of-effect peak.\n", sep = "")
+cat("- **Distance-to-farm:** restricting to assemblages whose point counts average ",
+    "< 500 m from the farm leaves the index coefficients essentially unchanged (§2.3).\n", sep = "")
+cat("- **Still to do:** the DAG; a Piedemonte-only cut; a distance-to-nearest-farm ",
+    "covariate; radii beyond 10 km for a cleaner scale-of-effect peak.\n", sep = "")
 ```

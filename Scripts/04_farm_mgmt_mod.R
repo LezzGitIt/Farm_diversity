@@ -93,16 +93,19 @@ Td_rich <- cov65 %>%
 Tax_div_long <- bind_rows(Td_rich, Td_asy)
 responses <- sort(unique(Tax_div_long$Hill))
 
-## Assemblage sampling covariates from the point-count events: number of distinct point counts, and mean day of year (migrant-season proxy)
+## Assemblage sampling covariates from the point-count events: number of distinct point counts, mean day of year (migrant-season proxy), and mean distance of the point counts from the farm (Distancia_farm; used for the on-farm sensitivity subset)
 wrangling_excels <- "../Ssp-bird-data-wrangling/Derived/Excels/"
+dist_threshold <- 500
+
 Assemblage_covs <- read_csv(paste0(wrangling_excels, "Site_covs.csv"), show_col_types = FALSE) %>%
-  select(Id_muestreo_no_dc, Id_gcs) %>%
+  select(Id_muestreo_no_dc, Id_gcs, Distancia_farm) %>%
   left_join(read_csv(paste0(wrangling_excels, "Event_covs.csv"), show_col_types = FALSE),
             by = "Id_muestreo_no_dc") %>%
   filter(!is.na(Ano)) %>%
   mutate(Assemblage = str_replace_all(paste(Uniq_db, Id_gcs, Ano_grp, Season, sep = "."), " |-", "_")) %>%
   summarize(Num_pc = n_distinct(Id_muestreo),
-            doy = mean(Julian_day, na.rm = TRUE), .by = Assemblage)
+            doy = mean(Julian_day, na.rm = TRUE),
+            dist_farm = mean(Distancia_farm, na.rm = TRUE), .by = Assemblage)
 
 ## Canopy cover in the surrounding 10 km (Scripts/06a_Extract_cc_buff.R) -- the landscape scale that best explains diversity; used only in the "climate" (no-Ecoregion) spec
 Canopy_10k <- read_csv("Data/Geospatial/Canopy_by_scale_assemblage.csv", show_col_types = FALSE) %>%
@@ -169,9 +172,10 @@ formula_for <- function(index, region_fixed, extra_fixed) {
                        paste(terms, collapse = " + "))))
 }
 
-frame_for <- function(hill, index, region_fixed, extra_fixed) {
+frame_for <- function(hill, index, region_fixed, extra_fixed, data_subset) {
   df <- Model_data %>%
     filter(Hill == hill, !is.na(se_log), !is.na(Num_pc_log_z), !is.na(doy_sin))
+  if (data_subset == "on_farm") df <- df %>% filter(!is.na(dist_farm), dist_farm < dist_threshold)
   if (index != "baseline") {
     df <- df %>% mutate(focal_z = .data[[paste0(index, "_z")]]) %>% filter(!is.na(focal_z))
   }
@@ -185,20 +189,22 @@ frame_for <- function(hill, index, region_fixed, extra_fixed) {
 
 # Fit the grid ----
 
+## data_subset: "all" always; "on_farm" (assemblages whose point counts average < dist_threshold m from the farm) as a sensitivity check, for the primary specs' index models only
 fit_grid <- expand_grid(
   hill = responses,
   index = c("baseline", div_indices),
-  specs
+  specs,
+  data_subset = c("all", "on_farm")
 ) %>%
-  ## sensitivity spec: skip the baseline (only need it to sit the index coefficients against)
-  filter(!(sensitivity & index == "baseline")) %>%
-  arrange(spec, hill, index) %>%
-  mutate(key = paste(hill, index, spec, sep = "__"),
+  filter(!(sensitivity & index == "baseline"),                 # sensitivity spec: no baseline
+         !(data_subset == "on_farm" & (sensitivity | index == "baseline"))) %>%  # on_farm: index models, primary specs
+  arrange(data_subset, spec, hill, index) %>%
+  mutate(key = paste(hill, index, spec, data_subset, sep = "__"),
          structure = paste(spec, if_else(index == "baseline", "baseline", "index"), sep = "__"))
 
-fit_one <- function(hill, index, spec, region_fixed, extra_fixed, sensitivity, key, structure, base_fit) {
+fit_one <- function(hill, index, spec, region_fixed, extra_fixed, sensitivity, data_subset, key, structure, base_fit) {
   file <- sprintf("Derived/models/mod_%s", key)
-  frame <- frame_for(hill, index, region_fixed, extra_fixed)
+  frame <- frame_for(hill, index, region_fixed, extra_fixed, data_subset)
   common <- list(chains = chains, iter = iter, warmup = warmup, seed = 1989,
                  control = list(adapt_delta = adapt_delta), refresh = 0, silent = 2,
                  file = file, file_refit = "on_change")
@@ -219,7 +225,7 @@ for (i in seq_len(nrow(fit_grid))) {
   message(sprintf("[%d/%d] %s", i, nrow(fit_grid), row$key))
   base <- base_by_structure[[row$structure]]
   fit <- fit_one(row$hill, row$index, row$spec, row$region_fixed, row$extra_fixed,
-                 row$sensitivity, row$key, row$structure, base_fit = base)
+                 row$sensitivity, row$data_subset, row$key, row$structure, base_fit = base)
   if (is.null(base)) base_by_structure[[row$structure]] <- fit
   mod_fits[[row$key]] <- fit
 }
@@ -235,15 +241,15 @@ tidy_fixef <- function(fit) {
   )) %>% list_rbind()
 }
 
-Model_summaries <- pmap(fit_grid, function(hill, index, spec, key, ...) {
+Model_summaries <- pmap(fit_grid, function(hill, index, spec, data_subset, key, ...) {
   fit <- mod_fits[[key]]
   r2 <- bayes_R2(fit)[, "Estimate"]
   tidy_fixef(fit) %>%
-    mutate(hill = hill, index = index, spec = spec,
+    mutate(hill = hill, index = index, spec = spec, data_subset = data_subset,
            n_obs = nobs(fit), bayes_R2 = r2,
            max_rhat = round(max(rhat(fit), na.rm = TRUE), 3),
            n_divergent = sum(subset(nuts_params(fit), Parameter == "divergent__")$Value)) %>%
-    relocate(hill, index, spec)
+    relocate(hill, index, spec, data_subset)
 }) %>%
   list_rbind() %>%
   mutate(across(c(estimate, conf_low, conf_high, p_direction_pos, bayes_R2), ~ round(.x, 4)),
@@ -256,22 +262,29 @@ if (!q0_has_se) message("NOTE: q = 0 fitted without measurement error (placehold
 
 # Report ----
 
-cat("\nBayesian R-squared: baseline (region + sampling only) vs + each index\n")
+cat("\nBayesian R-squared: baseline (region + sampling only) vs + each index (full data)\n")
 Model_summaries %>%
+  filter(data_subset == "all", !str_detect(spec, "numhab")) %>%
   distinct(hill, index, spec, n_obs, bayes_R2) %>%
-  filter(!str_detect(spec, "numhab")) %>%
   pivot_wider(names_from = index, values_from = bayes_R2) %>%
   print(n = Inf)
 
-cat("\nManagement-diversification coefficient (focal_z), by response x index x spec\n")
+cat("\nManagement-diversification coefficient (focal_z), full data\n")
 Model_summaries %>%
-  filter(term == "focal_z") %>%
+  filter(term == "focal_z", data_subset == "all") %>%
   select(hill, index, spec, estimate, conf_low, conf_high, p_direction_pos, n_obs) %>%
   arrange(spec, hill, index) %>%
   print(n = Inf)
 
+cat("\nDistance-to-farm sensitivity: focal_z, full vs on-farm-only (dist < ", dist_threshold, " m)\n", sep = "")
+Model_summaries %>%
+  filter(term == "focal_z", spec %in% c("ecoregion", "climate")) %>%
+  select(hill, index, spec, data_subset, estimate, conf_low, conf_high, n_obs) %>%
+  pivot_wider(names_from = data_subset, values_from = c(estimate, conf_low, conf_high, n_obs)) %>%
+  print(n = Inf)
+
 cat("\nConvergence: max R-hat and divergences by fit\n")
 Model_summaries %>%
-  distinct(hill, index, spec, max_rhat, n_divergent) %>%
+  distinct(hill, index, spec, data_subset, max_rhat, n_divergent) %>%
   filter(max_rhat > 1.01 | n_divergent > 0) %>%
   print(n = Inf)
