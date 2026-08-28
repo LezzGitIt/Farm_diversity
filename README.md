@@ -124,7 +124,13 @@ outputs are picked up by consumers via `latest_file()`.
 
 Reports (`quarto render`, after the scripts they source):
 `qmd/04_exploratory_report.qmd` (← `03_exploratory.R`),
-`qmd/05_farm_mgmt_mod_report.qmd` (← `05_farm_mgmt_plots.R`).
+`qmd/05_farm_mgmt_mod_report.qmd` (← `05_farm_mgmt_plots.R` + `06b_scale_of_effect.R`).
+
+Reference-only (not pipeline stages): `qmd/02_Analysis_iNEXT.qmd`,
+`qmd/03_Farm_diversity.qmd` (superseded by `00` and `04`); **`dag.R`** — the
+assumed causal DAG behind `04` (`dagitty`/`ggdag` → `Figures/DAG.png`,
+`Derived/Excels/DAG_adjustment_sets.csv`); consult before trusting a `04`
+coefficient.
 
 ## Status / next steps
 
@@ -143,5 +149,12 @@ precipitation are controlled for, bird richness is positively associated with
 woody-vegetation canopy cover in the surrounding landscape, peaking at ~8–9 km
 (a broad landscape signal, not a farm-scale one).
 
-Still to do: draw the DAG; a Piedemonte-only cut; add a distance-to-farm
-covariate. See `Project_notes.md` (local only) for full session notes.
+The causal DAG (`dag.R`) confirms the two-spec design: the minimal adjustment set
+is {Ecoregion, elevation, precipitation, sampling effort}, `Ecoregion` and the
+climate axes are ~80 % collinear so neither spec is individually sufficient, and
+the two act as bounding cases that agree. Habitat count is a mediator (kept out
+of the total-effect model).
+
+Still to do: apply the 300 m distance-to-farm cutoff as primary; add quadratic
+elevation/precipitation to the climate spec; a Piedemonte-only cut. See
+`Project_notes.md` (local only) for full session notes.
