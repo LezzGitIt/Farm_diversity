@@ -16,6 +16,22 @@ work.
   - `Complementary_Biodiversity_Paper_Birds_MJE_June_2026.xls` — farm management
     diversification indices and environmental covariates (94 farms), provided by
     Maria Esquivel. `Sheet1` holds the values; `Sheet2` is a column-label lookup.
+  - `Farm_covariates.csv` — farm-level climate normals (mean annual temperature,
+    total annual precipitation), elevation, and centroid coordinates, built by
+    `Scripts/00_farm_covariates.R` by averaging the bird data-wrangling repo's
+    point-count `Site_covs.csv` to the farm. Treated as a frozen raw input;
+    regenerate only when `Site_covs.csv` changes.
+  - `Data_paper_ecology.pdf` (optional reading copy) — the "Bird diversity in
+    working landscapes of Colombia" data paper describing the source bird
+    point-count datasets. Its full source lives in
+    `../Ssp-bird-data-wrangling/Data_paper/`; the Background section of
+    `Project_notes.md` has a distilled summary, so this copy can be deleted.
+  - `Geospatial/` — outputs of `Scripts/07_wvsc.R`, frozen here because the source
+    WVCC rasters (`../Geospatial_data/Environmental/`, ~3.5 GB) are external:
+    `Assemblage_hulls.gpkg` (convex hull of each assemblage's point counts),
+    `canopy_rasters/` (national WVCC clipped to each farm × year at 5.5 km), and
+    `Canopy_by_scale_assemblage.csv` (mean canopy cover per assemblage ×
+    buffered-hull radius).
   - `Excels/` — the original `Tax_div_all_farms_06.04.26.csv` /
     `Tax_div_coverage65_06.04.26.csv` snapshot from `../Ch1-ssp-birds/`. **No
     longer used** — `02_Analysis_iNEXT.qmd` now regenerates these into
@@ -29,10 +45,11 @@ work.
     the stricter subset (9 low-coverage assemblages removed) used for
     non-asymptotic q = 0; `all_farms` is the fuller set used for asymptotic
     q = 1/2. Date-stamped; consumers read the newest via `latest_file()`.
-  - `Excels/Farm_diversity_matched.csv` — farm diversification indices, restricted
-    to farms with an associated bird biodiversity estimate, joined to a farm-level
-    biodiversity summary (mean richness/Shannon/Simpson, number of assemblages
-    sampled).
+  - `Excels/Farm_diversity_matched.csv` — the single farm-level analysis table:
+    farm diversification indices restricted to farms with an associated bird
+    biodiversity estimate, joined to a farm-level biodiversity summary (mean
+    richness/Shannon/Simpson, number of assemblages sampled) and to the ecoregion
+    and farm climate covariates from `Data/Farm_covariates.csv`.
   - `Excels/Farm_diversity_unmatched.csv` — the farms dropped for lacking a
     biodiversity estimate, kept for the matched-vs-unmatched comparison plot.
   - `Excels/Bio_farms_unmatched.csv` — the reverse direction: farms with a bird
@@ -45,19 +62,28 @@ work.
 - `Scripts/` — analysis scripts
   - `qmd/` — `02_Analysis_iNEXT.qmd`, `03_Farm_diversity.qmd` (moved from
     `Ch1-ssp-birds`, formatting simplified to plain HTML; read from
-    `../Ssp-bird-data-wrangling/` and write to `Derived/Excels/`), and
-    `04_exploratory_report.qmd` (sources `02_exploratory.R` and renders its
-    figures + descriptions to a PDF). A project-level `_quarto.yml`
+    `../Ssp-bird-data-wrangling/` and write to `Derived/Excels/`),
+    `04_exploratory_report.qmd` (sources `02_exploratory.R`), and
+    `05_linking_model_report.qmd` (sources `04_plotting.R`) — the last two render
+    figures + descriptions to PDF. A project-level `_quarto.yml`
     (`execute-dir: project`) keeps the relative paths resolving.
-  - `01_Match_farm_diversity.R`, `02_exploratory.R` — see Pipeline below.
-  - `Farm_diversity_fns.R` — shared helpers (`latest_file()`), sourced by `01`
-    and `03_Farm_diversity.qmd`.
+  - `00_farm_covariates.R`, `01_Match_farm_diversity.R`, `02_exploratory.R`,
+    `03_linking_model.R`, `04_plotting.R`, `07_wvsc.R`, `08_scale_effect.R` —
+    see Pipeline below. The `.R` and `qmd/` number sequences are independent:
+    `03`/`04` here (linking analysis + its figures) are not
+    `qmd/03_Farm_diversity.qmd` / `qmd/04_exploratory_report.qmd`.
+  - `Farm_diversity_fns.R` — shared helpers (`latest_file()`), sourced by `01`,
+    `03_linking_model.R`, and `qmd/03_Farm_diversity.qmd`.
 - `_quarto.yml` — Quarto project config (`execute-dir: project`) for `Scripts/qmd/`.
 - `Project_notes.md` — session notes. **Not pushed to GitHub** (gitignored, local
   only).
 
 ## Pipeline
 
+0. `Scripts/00_farm_covariates.R` — average the wrangling repo's point-count
+   `Site_covs.csv` (climate normals, elevation, coordinates) to the farm and write
+   `Data/Farm_covariates.csv`. One-time prep; re-run only when `Site_covs.csv`
+   changes.
 1. `Scripts/qmd/02_Analysis_iNEXT.qmd` — generate the farm-level bird diversity
    (Hill number) estimates from raw point-count data (`../Ssp-bird-data-wrangling/`).
    **Two-pass**: run with `first_run <- TRUE` (writes
@@ -70,10 +96,11 @@ work.
 2. `Scripts/qmd/03_Farm_diversity.qmd` — GLMM of non-asymptotic richness on
    ecoregion + sampling covariates (no farm-management predictor yet). Reads the
    latest `Derived/Excels/Tax_div_*` via `latest_file()`.
-3. `Scripts/01_Match_farm_diversity.R` — loads the farm diversification indices
-   and the latest two bird-diversity CSVs from `Derived/Excels/`, keeps only
-   farms present in `Tax_div_all_farms`, and attaches a farm-level biodiversity
-   summary. Exports to `Derived/Excels/`.
+3. `Scripts/01_Match_farm_diversity.R` — loads the farm diversification indices,
+   the latest two bird-diversity CSVs from `Derived/Excels/`, and
+   `Data/Farm_covariates.csv`; keeps only farms present in `Tax_div_all_farms`,
+   and attaches a farm-level biodiversity summary plus the ecoregion and climate
+   covariates. Exports to `Derived/Excels/`.
 4. `Scripts/02_exploratory.R` — exploratory plots, in two groups:
    (a) the four diversification indices on their own — distributions, mutual
    correlation, correlation with farm covariates, and a matched-vs-unmatched
@@ -84,12 +111,46 @@ work.
    relationship. Exports to `Figures/`.
 5. `Scripts/qmd/04_exploratory_report.qmd` — renders the step-4 figures with
    short descriptions to a PDF (`Derived/Quarto_docs/`).
+6. `Scripts/03_linking_model.R` — the linking analysis: Bayesian
+   measurement-error models (`brms`) of assemblage-level log Hill-number diversity
+   (Shannon, Simpson) on each diversification index, propagating the iNEXT
+   bootstrap SE via `resp_se()`. Two region-adjustment sets per (Hill × index):
+   `Ecoregion` as a fixed effect, or farm precipitation + elevation. Writes
+   `Derived/Excels/Linking_model_{coefficients,diagnostics,data}.csv` and caches
+   the 16 fits to `Derived/models/`.
+7. `Scripts/04_plotting.R` — figures from the step-6 fits (`Figures/Linking_*.png`);
+   plot objects named for reuse in later `.qmd` reports and the manuscript.
+8. `Scripts/qmd/05_linking_model_report.qmd` — renders the step-6/7 design,
+   tables, and figures to a PDF summary (`Derived/Quarto_docs/`).
+9. `Scripts/07_wvsc.R` — canopy-cover scale-of-effect prep. For each assemblage
+   (`[collector . farm . year-group . season]`, the diversity-estimate unit), the
+   convex hull of its point counts buffered outward at 18 radii (200–2000 m by
+   200, then 3000–10000 m by 1000); mean woody-vegetation canopy cover (Colombia WVCC
+   rasters) inside each, from that assemblage's survey-year raster. Self-contained
+   (point coords + `Event_covs` + the national rasters). Writes the assemblage
+   hulls, per-farm-year clipped rasters, and the frozen
+   `Data/Geospatial/Canopy_by_scale_assemblage.csv`. Heavy (reads the ~3.5 GB
+   national rasters); clips are cached, re-run only when point counts or rasters
+   change.
+10. `Scripts/08_scale_effect.R` — joins the step-9 per-assemblage canopy to
+    diversity and fits `lmer(log(diversity) ~ canopy + log(Num_pc) + …)` at each
+    radius under five specs (sampling only; + farm random intercept; + elevation
+    and precipitation; both; and a within-ecoregion Mundlak check), for q = 0/1/2.
+    Reports which radius best explains diversity (peak gain in marginal R²).
+    `Derived/Excels/Scale_effect_results.csv`, `Figures/Scale_effect_canopy_*.png`,
+    and `Figures/Scale_effect_example_buffers.png` (from step 9 — one assemblage's
+    point counts, hull, and rings on the canopy raster).
 
 ## Status / next steps
 
 69 of 94 farms in the diversification-index spreadsheet have an associated bird
-biodiversity estimate. The bird-diversity estimation pipeline now runs entirely
-in-repo. The linking model (bird diversity ~ diversification indices) is still
-to be built; the ecoregion analysis in step 4 shows land-use and "all practices"
+biodiversity estimate. The bird-diversity estimation pipeline runs entirely
+in-repo. The linking model (step 6) has a first pass: with `Ecoregion` adjusted
+for, no diversification index shows a robust association with bird Shannon or
+Simpson diversity; the weak water/pasture-management signal that appears under
+climate-only adjustment is residual confounding with ecoregion. Still to do: draw
+the DAG, add non-asymptotic richness (q = 0) once `02` exports its SE, try a
+Mundlak within-between decomposition and a Piedemonte-only cut. The step-4
+ecoregion analysis shows land-use and "all practices"
 diversification are the indices least confounded with ecoregion. See
 `Project_notes.md` (local only) for full session notes.

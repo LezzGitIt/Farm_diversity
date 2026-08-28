@@ -120,8 +120,10 @@ Ecoregion_variance %>%
 Bird diversity is strongly ecoregion-structured (R² $\approx$ 0.30–0.45). Among the
 management indices, **water and pasture management are similarly ecoregion-bound**
 (R² $\approx$ 0.34–0.35), whereas **land use and "all practices" are essentially not**
-(R² $\approx$ 0.08–0.10, not significant). Elevation is almost entirely between-ecoregion
-(R² $\approx$ 0.79); canopy cover is the least ecoregion-bound covariate (R² $\approx$ 0.14).
+(R² $\approx$ 0.08–0.10, not significant). Precipitation (R² $\approx$ 0.83), elevation
+(R² $\approx$ 0.79) and temperature (R² $\approx$ 0.76) are almost entirely
+between-ecoregion; canopy cover is the least ecoregion-bound covariate
+(R² $\approx$ 0.14).
 
 ## Management diversification by ecoregion
 

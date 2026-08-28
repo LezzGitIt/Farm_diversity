@@ -339,13 +339,13 @@ Num.hab.df %>%
 
 # iNEXT 4 Steps
 
-Now that the data is formatted, we can follow the iNEXT 4 steps workflow outlined in Chao et al 2020. We will bootstrap the analysis 100 times to obtain estimates of uncertainty as well.
+Now that the data is formatted, we can follow the iNEXT 4 steps workflow outlined in Chao et al 2020. We bootstrap the analysis 500 times to obtain estimates of uncertainty as well (raised from 100 so the per-assemblage standard errors are stable enough to use quantitatively downstream, e.g. as measurement error in `Scripts/03_linking_model.R`).
 
 ```{r}
 #| label: iNEXT-4steps
 #| cache: true
 
-i4steps <- iNEXT4steps(data = bw_df_farm, nboot = 100, details = TRUE, datatype = "abundance")
+i4steps <- iNEXT4steps(data = bw_df_farm, nboot = 500, details = TRUE, datatype = "abundance")
 #warnings()
 ```
 

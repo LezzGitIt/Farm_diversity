@@ -20,19 +20,13 @@ dir.create("Derived/Excels", recursive = TRUE, showWarnings = FALSE)
 
 # Load data ----
 
-## Matched farm diversification indices (only farms with an associated bird biodiversity estimate; see Scripts/01_Match_farm_diversity.R) and the un-matched farms, kept for the representativeness check below
+## Matched farm diversification indices (only farms with an associated bird biodiversity estimate; see Scripts/01_Match_farm_diversity.R) and the un-matched farms, kept for the representativeness check below. The matched file now carries Ecoregion and the farm-level climate covariates (added in 01 from Data/Farm_covariates.csv).
 Farm_div_matched <- read_csv("Derived/Excels/Farm_diversity_matched.csv", show_col_types = FALSE) %>%
   mutate(Id_gcs = as.character(Id_gcs))
 Farm_div_unmatched <- read_csv("Derived/Excels/Farm_diversity_unmatched.csv", show_col_types = FALSE) %>%
   mutate(Id_gcs = as.character(Id_gcs))
 
-## Ecoregion is not carried in the matched file; pull it from the wrangling repo's site covariates, one row per farm
-Site_ecoregion <- read_csv("../Ssp-bird-data-wrangling/Derived/Excels/Site_covs.csv", show_col_types = FALSE) %>%
-  mutate(Id_gcs = as.character(Id_gcs)) %>%
-  distinct(Id_gcs, Ecoregion)
-
-Farm_div_eco <- Farm_div_matched %>%
-  left_join(Site_ecoregion, by = "Id_gcs")
+Farm_div_eco <- Farm_div_matched
 
 stopifnot(sum(is.na(Farm_div_eco$Ecoregion)) == 0)
 
@@ -53,12 +47,14 @@ bird_metric_labels <- c(
   Simpson_mean = "Simpson (q = 2)"
 )
 
-## Farm-level environmental covariates (median summary per farm), for the by-ecoregion comparison
-covar_names <- c("WVCC_median", "DEM_median", "Biomasa_median")
+## Farm-level environmental covariates for the by-ecoregion comparison. Canopy / elevation / biomass are the MJE per-farm medians; temperature and precipitation are the point-count means from Data/Farm_covariates.csv (joined in 01). Temperature is included to show it is ~ -elevation (r about -0.99); precipitation is a more independent axis.
+covar_names <- c("WVCC_median", "DEM_median", "Biomasa_median", "Avg_temp_mean", "Tot_prec_mean")
 covar_labels <- c(
   WVCC_median = "Canopy cover (WVCC)",
   DEM_median = "Elevation (DEM)",
-  Biomasa_median = "Biomass"
+  Biomasa_median = "Biomass",
+  Avg_temp_mean = "Mean temperature",
+  Tot_prec_mean = "Total precipitation"
 )
 
 ## Panel order: specific practice groups first, overall index last
@@ -83,13 +79,16 @@ print(p_distributions)
 
 # Correlation among diversity indices and farm-level environmental covariates ----
 
-cor_vars <- c(div_index_names, "dist_predio_cercano", "WVCC_mean", "DEM_mean", "Biomasa_mean")
+cor_vars <- c(div_index_names, "dist_predio_cercano", "WVCC_mean", "DEM_mean", "Biomasa_mean",
+              "Avg_temp_mean", "Tot_prec_mean")
 cor_labels <- c(
   div_index_labels,
   dist_predio_cercano = "Dist. nearest\nSCR farm",
   WVCC_mean = "Canopy\ncover",
   DEM_mean = "Elevation",
-  Biomasa_mean = "Biomass"
+  Biomasa_mean = "Biomass",
+  Avg_temp_mean = "Temperature",
+  Tot_prec_mean = "Precipitation"
 )
 
 p_corr <- Farm_div_matched %>%
@@ -297,7 +296,7 @@ p_bird_bars <- ggplot(Bird_summary, aes(x = Ecoregion, y = Mean, fill = Ecoregio
 ggsave("Figures/Bird_diversity_by_ecoregion.png", p_bird_bars, bg = "white", width = 10, height = 4.5)
 print(p_bird_bars)
 
-# By ecoregion: farm environmental covariates (median canopy cover, elevation, biomass) ----
+# By ecoregion: farm environmental covariates (canopy cover, elevation, biomass, temperature, precipitation) ----
 
 ## These are the mechanisms Ecoregion partly stands in for; showing they are also ecoregion-structured motivates swapping Ecoregion for climate/topography in the linking model
 p_covar_bars <- ggplot(Covar_summary, aes(x = Ecoregion, y = Mean, fill = Ecoregion)) +
@@ -311,14 +310,14 @@ p_covar_bars <- ggplot(Covar_summary, aes(x = Ecoregion, y = Mean, fill = Ecoreg
   facet_wrap(~Covariate, scales = "free_y") +
   ecoregion_fill +
   labs(
-    x = NULL, y = "Farm median",
+    x = NULL, y = "Farm value",
     title = "Farm environmental covariates by ecoregion",
-    subtitle = "Median woody-vegetation canopy cover, elevation, and biomass per farm"
+    subtitle = "Per-farm median canopy cover / elevation / biomass (MJE); point-count-mean temperature and precipitation"
   ) +
   theme(legend.position = "none") +
   tilted_x +
   roomy_margin
-ggsave("Figures/Covariates_by_ecoregion.png", p_covar_bars, bg = "white", width = 10, height = 4.5)
+ggsave("Figures/Covariates_by_ecoregion.png", p_covar_bars, bg = "white", width = 11, height = 8)
 print(p_covar_bars)
 
 # By ecoregion: standardized signal, management vs birds vs covariates side by side ----

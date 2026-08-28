@@ -1,0 +1,293 @@
+---
+title: "Linking bird diversity to farm management diversification"
+subtitle: "First modelling pass — Bayesian measurement-error models (`Scripts/03_linking_model.R`, `04_plotting.R`)"
+date: today
+format:
+  pdf:
+    toc: true
+    number-sections: true
+    fig-pos: "H"
+    geometry: margin=1in
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+
+## Rebuild every figure object (p_index_effects, p_all_coefficients, p_ppcheck,
+## p_index_conditional) from the plotting script, which reads the cached brms fits
+## in Derived/models/ -- fast, no resampling. Keeps this report in lock-step with
+## the code.
+source("Scripts/04_plotting.R")
+
+library(tidyverse)
+library(knitr)
+
+## Strip on-plot titles/subtitles -- the section headings and captions carry them
+bare <- function(p) p + labs(title = NULL, subtitle = NULL)
+
+coefs <- read_csv("Derived/Excels/Linking_model_coefficients.csv", show_col_types = FALSE)
+diag <- read_csv("Derived/Excels/Linking_model_diagnostics.csv", show_col_types = FALSE)
+
+index_label <- c(
+  Land_use_div = "Land use", Water_mgmt_div = "Water mgmt",
+  Pasture_mgmt_div = "Pasture mgmt", All_practices_div = "All practices"
+)
+adj_label <- c(ecoregion = "Ecoregion (fixed)", climate = "Precip + elevation")
+
+fmt_ci <- function(est, lo, hi) sprintf("%+.3f [%+.3f, %+.3f]", est, lo, hi)
+```
+
+# What this round did
+
+The goal of this repo is to ask whether **farm management diversification** — the
+four indices from Maria Esquivel's spreadsheet (land use, water management,
+pasture management, and an overall "all practices" index) — is associated with
+**bird taxonomic diversity** on the SCR farms, once the things that obviously
+drive bird diversity at this scale (which ecoregion a farm is in, and how hard it
+was sampled) are accounted for.
+
+This pass:
+
+1. built a farm-level environmental covariate table (climate normals + elevation)
+   from the point-count site covariates, so region can be represented by the
+   *mechanisms* it stands for and not only by the categorical label;
+2. fitted Bayesian hierarchical regressions of assemblage-level diversity on each
+   index, **carrying the estimation uncertainty of every diversity value into the
+   model** via `resp_se()`;
+3. did this two ways per index — adjusting for `Ecoregion` as a fixed effect, or
+   for farm precipitation + elevation instead — so the management coefficient can
+   be read against how region is handled.
+
+The headline: **no diversification index shows a robust association with bird
+Shannon or Simpson diversity once `Ecoregion` is in the model.**
+
+# Data added this round
+
+## Farm environmental covariates (`Data/Farm_covariates.csv`)
+
+`Scripts/00_farm_covariates.R` averages the bird data-wrangling repo's
+point-count `Site_covs.csv` to the farm (`Id_gcs`): mean annual temperature
+(°C), total annual precipitation (mm), elevation (m, 90 m DEM), centroid
+coordinates, and the within-farm SD of each. Climate barely varies among a
+farm's point counts (median within-farm SD $\approx$ 0.02 °C, $\approx$ 16 mm, $\approx$ 7 m), so the
+farm mean loses almost nothing. The file is treated as a **frozen raw input**
+(stored in `Data/`, regenerated only if `Site_covs.csv` changes), like the MJE
+spreadsheet.
+
+Key correlations at the farm level:
+
+| Pair | *r* | Consequence |
+|---|---|---|
+| Temperature — elevation | −0.995 | Use only one; this analysis uses elevation. |
+| Precipitation — elevation | −0.23 | Precipitation is independent *of elevation*, so it can sit alongside it in a model. |
+| Precipitation — Ecoregion (R²) | 0.83 | But precipitation is strongly ecoregion-bound — more so than elevation — so it carries little within-region signal. |
+
+`Event_covs.csv` was reviewed for other covariates (field canopy cover / height,
+local land-cover percentages, distance to forest, weather) but **deliberately
+left out**: those are survey-level rather than site-constant, canopy cover is
+already covered at farm level by the spreadsheet's remote-sensed `WVCC`, and the
+local land-cover percentages would be partly circular with the land-use
+diversification index.
+
+## Source dataset
+
+The underlying bird point counts come from the data paper *"Bird diversity in
+working landscapes of Colombia"* (Skinner et al., preprint 2026-05-04): six
+monitoring datasets, 2013–2024, 73 farms, five ecoregions, from the SCR / SNAPP
+silvopasture projects. The six datasets used materially different field protocols
+(25 m vs 50 m radius, 0–90 min vs 10 min counts, single vs 3–5 repeat visits),
+which is why the models carry a batch effect (below). A fuller summary is in
+`Project_notes.md`.
+
+# Modelling design
+
+## Response and measurement error
+
+Each **assemblage** — a `[data collector × farm × year-group × season]`
+combination — has an iNEXT4steps Hill-number estimate with a bootstrap standard
+error. The response is **log of the asymptotic Hill number** (`TD_asy`) for
+**q = 1 (Shannon)** and **q = 2 (Simpson)** — the two orders whose rarefaction
+curves do asymptote. The known SE enters on the log scale as
+`se_log = s.e. / TD_asy` (delta method) through
+`resp_se(se_log, sigma = TRUE)`, so a lightly-sampled assemblage is down-weighted
+and a residual process SD is still estimated.
+
+**Non-asymptotic richness (q = 0) is deferred.** The export's `s.e.` is the SE of
+the *asymptotic* richness estimate, which the iNEXT analysis treats as an
+unreliable lower bound; the coverage-standardised estimate that q = 0 should use
+(`No_Asy_TD` at C~max~) has no SE in the current export. `02_Analysis_iNEXT.qmd`
+needs to emit that before richness can be modelled the same way — bundled with
+raising the bootstrap from `nboot = 100` to $\geq$ 500.
+
+## Predictors and grouping structure
+
+For every (Hill number × index):
+
+```
+log(TD_asy) | resp_se(se_log, sigma = TRUE) ~
+    index_z + <region adjustment> + log(Num_pc)_z +
+    (1 | Id_gcs) + (1 | CollectorXyear)
+```
+
+- **Region adjustment**, one of:
+  - **"ecoregion"** — `Ecoregion` as a **5-level fixed effect**. Five levels is
+    too few to identify a random-effect variance, and the aim is to adjust for /
+    characterise these specific regions, not to generalise to a population of
+    ecoregions.
+  - **"climate"** — farm mean **precipitation + elevation** in place of the label.
+- **`log(Num_pc)`** — the number of distinct point-count locations feeding the
+  assemblage. A strong predictor in the earlier exploratory GLMM
+  (`qmd/03_Farm_diversity.qmd`): more locations sample more of the farm landscape
+  and register more species even at standardised coverage.
+- **`(1 | Id_gcs)`** — farm. Automatically nested in `Ecoregion` (each farm sits
+  in one ecoregion and farm IDs are globally unique, so `(1|Ecoregion) +
+  (1|Id_gcs)` *is* the nested model — no `/` needed).
+- **`(1 | CollectorXyear)`** — a batch effect for the 8 `[dataset × year-group]`
+  cohorts, absorbing residual protocol differences the coverage-standardisation
+  does not remove. Inherited from `qmd/03_Farm_diversity.qmd`. Fixed `Year` is
+  omitted — near-collinear with data collector.
+
+## Other choices
+
+- **One model per index** (not all four together): avoids collinearity and the
+  "all practices" composite competing with its own components, and lets water /
+  pasture management keep their own sample size.
+- **Restricted to the 69 farms** with both a bird estimate and a diversification
+  index — 108 assemblages for q = 1 (Land use 107 / 68 farms; Water & Pasture
+  90 / 60; All practices 108 / 69). Note **53 of 72 farms contribute a single
+  assemblage**, so each model is effectively a ~69-farm regression with a
+  measurement-error response rather than a deep hierarchy.
+- **Priors** (log scale, weakly informative): `student_t(3, 3, 2.5)` intercept,
+  `normal(0, 0.75)` on the regression coefficients, `exponential(1)` on the
+  random-effect SDs and on `sigma`. 4 chains × 3000 iterations, `adapt_delta =
+  0.97`.
+- 16 fits total; the first fit of each adjustment structure compiles the Stan
+  model and the rest reuse it. All fits cached to `Derived/models/`.
+
+# Results
+
+## Management-diversification effect
+
+```{r}
+#| label: tbl-focal
+
+coefs %>%
+  filter(term == "focal_z") %>%
+  mutate(
+    cell = sprintf("%s  (P=%.2f)", fmt_ci(estimate, conf_low, conf_high), p_direction_pos)
+  ) %>%
+  select(Hill, Index, Adjustment, cell) %>%
+  pivot_wider(names_from = Adjustment, values_from = cell) %>%
+  transmute(
+    Hill, Index = index_label[Index],
+    `Ecoregion adjustment` = ecoregion,
+    `Climate adjustment` = climate
+  ) %>%
+  arrange(Hill, Index) %>%
+  kable(
+    caption = "Effect of a 1-SD increase in each diversification index on log Hill-number diversity (posterior median [90% CrI], and P(effect > 0)), holding sampling effort fixed and adjusting for region two ways. Positive means more-diversified farms have higher bird diversity; an effect of 0.10 is roughly a 10 percent change in diversity per SD of the index."
+  )
+```
+
+```{r}
+#| label: fig-index-effects
+#| fig-width: 9
+#| fig-height: 4.5
+#| fig-cap: "Posterior median and 90% credible interval for the standardised effect of each index, by Hill number and region adjustment. Green = Ecoregion as a fixed effect; purple = precipitation + elevation instead."
+
+bare(p_index_effects)
+```
+
+- **Under `Ecoregion` adjustment (green), every index effect sits on zero** —
+  the 90% credible interval spans 0 and P(effect > 0) $\approx$ 0.5 for all four indices
+  and both Hill numbers.
+- **Under climate-only adjustment (purple)**, water management
+  (P(>0) $\approx$ 0.94–0.99) and pasture management (P(>0) $\approx$ 0.97–0.99, interval
+  excludes 0) turn weakly positive. Land use and "all practices" stay near zero
+  under both adjustments.
+
+## Interpretation
+
+The water- and pasture-management "signal" that appears under climate-only
+adjustment is **residual confounding with ecoregion**. Those two indices are the
+most strongly ecoregion-structured (R² $\approx$ 0.34–0.35 on `index ~ Ecoregion`, from
+`Scripts/02_exploratory.R`), and precipitation + elevation do not fully stand in
+for everything `Ecoregion` captures — species pool, biogeographic history,
+regional land-use history. When `Ecoregion` is adjusted for directly, the
+association disappears. The two indices that *are* separable from ecoregion
+(land use, "all practices"; R² $\approx$ 0.08–0.10) show nothing under either adjustment.
+
+This is consistent with the earlier exploratory GLMM
+(`qmd/03_Farm_diversity.qmd`), which explained ~79% of farm-level richness with
+ecoregion and sampling effort alone and concluded that farm management adds
+little predictive power at this spatial and analytical resolution.
+
+## The rest of the model
+
+```{r}
+#| label: fig-all-coefficients
+#| fig-width: 11
+#| fig-height: 6.5
+#| fig-cap: "All fixed effects from every model. Sampling effort (log point counts) and the ecoregion contrasts carry essentially all of the explained variation; the focal index term is small everywhere."
+
+bare(p_all_coefficients)
+```
+
+```{r}
+#| label: fig-index-conditional
+#| fig-width: 9
+#| fig-height: 6
+#| fig-cap: "Predicted asymptotic Hill-number diversity across the observed range of the two indices least confounded with ecoregion (land use, all practices), other predictors held at their means. Points are the raw assemblage estimates. The near-flat slopes match the coefficient table."
+
+bare(p_index_conditional)
+```
+
+## Convergence
+
+```{r}
+#| label: tbl-diagnostics
+
+diag %>%
+  transmute(
+    Hill, Index = index_label[Index], `Region adjustment` = adj_label[Adjustment],
+    `n (assemblages)` = n_obs,
+    `max R-hat` = sprintf("%.3f", max_rhat),
+    `min bulk ESS` = round(min_bulk_ess),
+    `divergences` = n_divergent
+  ) %>%
+  arrange(Hill, Index, `Region adjustment`) %>%
+  kable(caption = "All 16 models: R-hat at or below 1.01, no divergent transitions, bulk effective sample size at least ~475.")
+```
+
+```{r}
+#| label: fig-ppcheck
+#| fig-width: 9
+#| fig-height: 7
+#| fig-cap: "Posterior predictive checks for the 'all practices' models (representative of all 16): observed log-diversity (dark) against draws from the posterior predictive distribution (light)."
+
+p_ppcheck
+```
+
+# What is deferred
+
+- **Draw the DAG.** Write down ecoregion / climate / elevation as common causes
+  of both bird diversity and the management indices, and confirm the adjustment
+  set the models should target.
+- **Non-asymptotic richness (q = 0)** once `02_Analysis_iNEXT.qmd` exports a
+  coverage-based SE for it (with the `nboot` increase).
+- **Mundlak / within–between decomposition** of each index (ecoregion mean + farm
+  deviation) as an alternative to the categorical adjustment — the within
+  coefficient is the confound-free estimate; water / pasture will get wide
+  intervals, which is the honest answer.
+- **Piedemonte-only cut** (n $\approx$ 25 farms, the most management variation, region
+  held fixed) as the cleanest quasi-experiment.
+- **Model B without `(1 | CollectorXyear)`** — four of six data collectors worked
+  only in Piedemonte, so that grouping partly re-introduces a region effect;
+  fit with and without.
+- **Variance partitioning** and prior-sensitivity checks on the farm SD / `sigma`
+  given how many farms contribute only one assemblage.
