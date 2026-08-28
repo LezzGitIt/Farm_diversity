@@ -1,10 +1,10 @@
 ---
-title: "Bird diversity vs farm management diversification"
-subtitle: "Bayesian measurement-error models (`Scripts/04_farm_mgmt_mod.R` + `05_farm_mgmt_plots.R`)"
+title: "Bird diversity, farm management diversification, and canopy-cover scale of effect"
+subtitle: "`Scripts/04_farm_mgmt_mod.R`, `05_farm_mgmt_plots.R`, `06b_scale_of_effect.R`"
 date: today
 format:
   pdf:
-    toc: false
+    toc: true
     number-sections: true
     fig-pos: "H"
     geometry: margin=1in
@@ -18,54 +18,54 @@ execute:
 #| label: setup
 #| include: false
 
-## Figures from the plotting script (reads the cached brms fits; no resampling).
-source("Scripts/05_farm_mgmt_plots.R")
+## Rebuild the figure objects by sourcing the plotting scripts (they read cached
+## fits / refit fast lmer -- no brms resampling). Keeps the report in lock-step
+## with the code.
+source("Scripts/05_farm_mgmt_plots.R")   # -> p_index_effects, p_bayes_r2, p_ppcheck, p_index_conditional
+source("Scripts/06b_scale_of_effect.R")  # -> p_scale_r2, p_scale_beta
 
 library(tidyverse)
 library(knitr)
 
 bare <- function(p) p + labs(title = NULL, subtitle = NULL)
 
-summaries <- read_csv("Derived/Excels/Farm_mgmt_model_summaries.csv", show_col_types = FALSE)
+mm  <- read_csv("Derived/Excels/Farm_mgmt_model_summaries.csv", show_col_types = FALSE)
+soe <- read_csv("Derived/Excels/Scale_effect_results.csv", show_col_types = FALSE)
 
 hill_lab <- c(richness = "Richness (q = 0)", shannon = "Shannon (q = 1)", simpson = "Simpson (q = 2)")
 index_lab <- c(baseline = "(baseline)", Land_use_div = "Land use", Water_mgmt_div = "Water mgmt",
                Pasture_mgmt_div = "Pasture mgmt", All_practices_div = "All practices")
 spec_lab <- c(ecoregion = "Ecoregion (fixed)", climate = "Precip + elevation",
-              ecoregion_numhab = "+ Num.hab (sensitivity)")
+              ecoregion_numhab = "+ Num.hab (sens.)",
+              sampling = "Sampling only", sampling_farm = "+ farm RE",
+              topography = "+ topography", topography_farm = "+ topo + farm RE",
+              within_eco = "Within-ecoregion (Mundlak)")
 ```
 
-::: callout-note
-This report is a thin wrapper around `Scripts/04_farm_mgmt_mod.R` — it renders the
-figures and the summary table straight from that script's outputs, so it stays in
-lock-step with the code. The narrative interpretation lives in `Project_notes.md`.
-:::
+This repo links two independently-produced datasets on Colombia's Sustainable
+Cattle Ranching farms: **bird taxonomic diversity** (iNEXT Hill numbers per
+`[collector . farm . year-group . season]` assemblage,
+`Scripts/00_bird_diversity_estimates.R`) and **farm management diversification**
+(four `[0-1]` indices from Maria Esquivel). It has two analyses: whether the
+diversification indices predict bird diversity (§2), and at what spatial scale
+surrounding woody-vegetation canopy cover best explains bird diversity (§3).
 
-# Question and design
+# Bird diversity vs farm management diversification
 
-Does **farm management diversification** — the four indices from Maria Esquivel's
-spreadsheet (land use, water management, pasture management, "all practices") —
-predict **bird taxonomic diversity** on the SCR farms, once region, sampling
-effort and season are accounted for?
+`Scripts/04_farm_mgmt_mod.R` — `brms` measurement-error models
+(`log(diversity) | resp_se(se) ~ …`) of assemblage diversity on each index, one
+at a time. Per response, a **no-index baseline** (region + `log(Num_pc)` + habitat
+count + cyclic day-of-year + `(1|Id_gcs)` + `(1|CollectorXyear)`) is fitted
+alongside, so the variance an index *adds* is visible. Region is adjusted two
+ways — `Ecoregion` fixed, or precipitation + elevation — plus a `Num.hab`
+sensitivity spec. Responses: Shannon / Simpson use the asymptotic Hill number;
+richness (q = 0) uses the coverage-standardised estimate, included once its
+coverage-based SE is available.
 
-**Models** (`brms`, measurement-error via `resp_se()` on log diversity):
-
-- **Responses:** richness (q = 0, non-asymptotic `No_Asy_TD` at Cmax + its
-  coverage-based SE), Shannon (q = 1) and Simpson (q = 2) (asymptotic `TD_asy` +
-  bootstrap SE).
-- **Per response, a no-index _baseline_** (region + `log(Num_pc)` + habitat count
-  + cyclic day of year + `(1|Id_gcs)` + `(1|CollectorXyear)`) plus one model per
-  index (baseline + `index_z`).
-- **Region adjusted two ways:** `Ecoregion` as a fixed effect, or farm
-  precipitation + elevation. A third `ecoregion_numhab` spec is a sensitivity
-  check only (habitat count partly mediates the land-use index).
-- Day of year enters as `sin`/`cos` of the mean Julian day — a control for the
-  Nearctic migrant influx.
-
-# Variance explained: baseline vs adding each index
+## Variance explained: baseline vs adding each index
 
 ```{r}
-#| label: fig-bayes-r2
+#| label: fig-r2
 #| fig-width: 9
 #| fig-height: 4
 
@@ -75,20 +75,20 @@ bare(p_bayes_r2)
 ```{r}
 #| label: tbl-r2
 
-summaries %>%
+mm %>%
   distinct(hill, index, spec, n_obs, bayes_R2) %>%
   filter(spec %in% c("ecoregion", "climate")) %>%
   mutate(hill = recode(hill, !!!hill_lab), index = recode(index, !!!index_lab),
          spec = recode(spec, !!!spec_lab)) %>%
   arrange(spec, hill, index) %>%
   kable(col.names = c("Response", "Index", "Region adj.", "n", "Bayesian R²"),
-        caption = "Bayesian R^2 of the baseline (region + sampling + season, no index) and of each index model.")
+        caption = "Bayesian R^2: baseline (region + sampling + season, no index) vs each index model.")
 ```
 
-# The management-diversification coefficient
+## The management-diversification coefficient
 
 ```{r}
-#| label: fig-index-effects
+#| label: fig-effects
 #| fig-width: 9
 #| fig-height: 4
 
@@ -98,10 +98,9 @@ bare(p_index_effects)
 ```{r}
 #| label: tbl-focal
 
-summaries %>%
+mm %>%
   filter(term == "focal_z", spec %in% c("ecoregion", "climate")) %>%
-  mutate(cell = sprintf("%+.3f [%+.3f, %+.3f]  (P=%.2f)",
-                        estimate, conf_low, conf_high, p_direction_pos)) %>%
+  mutate(cell = sprintf("%+.3f [%+.3f, %+.3f] (P=%.2f)", estimate, conf_low, conf_high, p_direction_pos)) %>%
   select(hill, index, spec, cell) %>%
   pivot_wider(names_from = spec, values_from = cell) %>%
   mutate(hill = recode(hill, !!!hill_lab), index = recode(index, !!!index_lab)) %>%
@@ -111,26 +110,26 @@ summaries %>%
 ```
 
 ```{r}
-#| label: fig-index-conditional
+#| label: fig-conditional
 #| fig-width: 9
 #| fig-height: 7
 
 bare(p_index_conditional)
 ```
 
-# Convergence
+## Diagnostics
 
 ```{r}
 #| label: tbl-diag
 
-summaries %>%
+mm %>%
   distinct(hill, index, spec, n_obs, max_rhat, n_divergent) %>%
+  arrange(desc(max_rhat)) %>%
+  slice_head(n = 8) %>%
   mutate(hill = recode(hill, !!!hill_lab), index = recode(index, !!!index_lab),
          spec = recode(spec, !!!spec_lab)) %>%
-  arrange(desc(max_rhat)) %>%
-  head(10) %>%
-  kable(col.names = c("Response", "Index", "Spec", "n", "max R-hat", "divergences"),
-        caption = "Ten fits with the highest R-hat (all fits shown if <= 10).")
+  kable(col.names = c("Response", "Index", "Spec", "n", "max R-hat", "div."),
+        caption = "Eight fits with the highest R-hat.")
 ```
 
 ```{r}
@@ -139,4 +138,79 @@ summaries %>%
 #| fig-height: 8
 
 p_ppcheck
+```
+
+{{< pagebreak >}}
+
+# Canopy-cover scale of effect
+
+`Scripts/06b_scale_of_effect.R` — for each assemblage, mean woody-vegetation
+canopy cover within the convex hull of its point counts buffered at 18 radii
+(200 m – 10 km; `Scripts/06a_Extract_cc_buff.R`). At each radius an
+`lmer(log(diversity) ~ canopy + …)` is fitted under five region-adjustment specs,
+each also controlling for sampling effort, habitat count and cyclic day of year.
+The "scale of effect" is the radius whose canopy term adds the most marginal R²
+over its matching null. The 3 `Ref_*` reference sites are excluded.
+`Figures/Scale_effect_example_buffers.png` shows one assemblage's point counts,
+convex hull and rings over its canopy raster.
+
+## Variance explained by canopy vs radius
+
+```{r}
+#| label: fig-soe-r2
+#| fig-width: 11
+#| fig-height: 5
+
+bare(p_scale_r2)
+```
+
+```{r}
+#| label: fig-soe-beta
+#| fig-width: 11
+#| fig-height: 5
+
+bare(p_scale_beta)
+```
+
+## Best-supported radius per response and spec
+
+```{r}
+#| label: tbl-soe
+
+soe %>%
+  filter(!is.na(dR2m_canopy)) %>%
+  slice_max(dR2m_canopy, n = 1, by = c(response, spec)) %>%
+  transmute(
+    Response = recode(str_remove(response, "_q[0-9]"), !!!hill_lab),
+    Spec = recode(spec, !!!spec_lab),
+    `Radius (m)` = radius_m,
+    `dR2 (canopy)` = round(dR2m_canopy, 3),
+    `Std. effect [95% CI]` = sprintf("%+.3f [%+.3f, %+.3f]", canopy_beta, canopy_lo, canopy_hi)
+  ) %>%
+  arrange(Response, Spec) %>%
+  kable(caption = "Radius with the largest gain in marginal R^2 from canopy cover, per response x spec.")
+```
+
+# Takeaways
+
+```{r}
+#| label: takeaways
+#| results: asis
+
+strong <- mm %>% filter(term == "focal_z", spec == "ecoregion",
+                        sign(conf_low) == sign(conf_high))
+best_soe <- soe %>% filter(response == "richness_q0", spec == "topography", !is.na(dR2m_canopy)) %>%
+  slice_max(dR2m_canopy, n = 1)
+
+cat("- **Management diversification:** with `Ecoregion` adjusted for, ",
+    if (nrow(strong) == 0) "no index's 90% CrI excludes zero for any response"
+    else paste0(nrow(strong), " index-response combinations have a CrI excluding zero"),
+    ". Baseline R-squared and index R-squared are close throughout -- the indices add little.\n", sep = "")
+cat("- **Canopy scale of effect:** net of elevation + precipitation, bird diversity is ",
+    "positively associated with surrounding canopy cover, strongest at the broad end of ",
+    "the range (best radius for q = 0 richness: ", best_soe$radius_m, " m, standardized effect +",
+    round(best_soe$canopy_beta, 2), "). The within-ecoregion (Mundlak) effect is weak, so ",
+    "much of it is a between-region landscape gradient.\n", sep = "")
+cat("- **Still to do:** the DAG; a Piedemonte-only cut; a distance-to-farm covariate; ",
+    "radii beyond 10 km for a cleaner scale-of-effect peak.\n", sep = "")
 ```

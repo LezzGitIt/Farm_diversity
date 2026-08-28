@@ -129,8 +129,8 @@ identifiable_keys <- names(mod_fits) %>%
 Conditional_lines <- map(identifiable_keys, conditional_index_effect) %>% list_rbind()
 
 Raw_points <- Model_data %>%
-  select(hill, all_of(identifiable_indices), response) %>%
-  mutate(Hill = factor(recode(hill, !!!hill_labels), levels = hill_order)) %>%
+  select(Hill, all_of(identifiable_indices), response) %>%
+  mutate(Hill = factor(recode(Hill, !!!hill_labels), levels = hill_order)) %>%
   pivot_longer(all_of(identifiable_indices), names_to = "index", values_to = "index_value") %>%
   filter(!is.na(index_value)) %>%
   mutate(Index = factor(recode(index, !!!index_labels), levels = index_order))

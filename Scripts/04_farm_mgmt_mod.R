@@ -65,14 +65,25 @@ Td_asy <- read_csv(latest_file("Derived/Excels", "^Tax_div_all_farms_.*\\.csv$")
             Hill = if_else(Order.q == 1, "shannon", "simpson"),
             response = TD_asy, response_se = `s.e.`)
 
-Td_rich <- read_csv(latest_file("Derived/Excels", "^Tax_div_coverage65_.*\\.csv$"), show_col_types = FALSE) %>%
-  mutate(Id_gcs = as.character(Id_gcs)) %>%
-  filter(Order.q == 0) %>%
-  transmute(Assemblage, Id_gcs, Uniq_db, Ano_grp, Season, Num.hab,
-            Hill = "richness",
-            response = No_Asy_TD, response_se = No_Asy_TD_se)
+## q = 0 needs the coverage-based SE (`No_Asy_TD_se`), which only the current
+## `Scripts/00_bird_diversity_estimates.R` emits. If the export predates that,
+## richness is skipped with a message rather than erroring.
+cov65 <- read_csv(latest_file("Derived/Excels", "^Tax_div_coverage65_.*\\.csv$"), show_col_types = FALSE) %>%
+  mutate(Id_gcs = as.character(Id_gcs))
+
+Td_rich <- if ("No_Asy_TD_se" %in% names(cov65)) {
+  cov65 %>%
+    filter(Order.q == 0) %>%
+    transmute(Assemblage, Id_gcs, Uniq_db, Ano_grp, Season, Num.hab,
+              Hill = "richness", response = No_Asy_TD, response_se = No_Asy_TD_se)
+} else {
+  message("coverage65 export has no No_Asy_TD_se -- skipping q = 0 richness ",
+          "(re-run Scripts/00_bird_diversity_estimates.R to add it).")
+  NULL
+}
 
 Tax_div_long <- bind_rows(Td_rich, Td_asy)
+responses <- sort(unique(Tax_div_long$Hill))
 
 ## Assemblage sampling covariates from the point-count events: number of distinct point counts, and mean day of year (migrant-season proxy)
 wrangling_excels <- "../Ssp-bird-data-wrangling/Derived/Excels/"
@@ -160,7 +171,7 @@ frame_for <- function(hill, index, region_fixed, extra_fixed) {
 # Fit the grid ----
 
 fit_grid <- expand_grid(
-  hill = c("richness", "shannon", "simpson"),
+  hill = responses,
   index = c("baseline", div_indices),
   specs
 ) %>%
