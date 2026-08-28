@@ -1,6 +1,6 @@
 # Scale of effect: which canopy-cover radius best explains bird diversity ----
 
-### For each concentric-disc radius from Scripts/07_wvsc.R, fit a mixed model of assemblage-level diversity on standardized canopy cover at that radius, and read off which radius adds the most explained variance (largest gain in marginal R^2 over a matching null without the canopy term; equivalently the largest AIC improvement). That radius is the "scale of effect" for canopy cover.
+### For each concentric-disc radius from Scripts/06a_Extract_cc_buff.R, fit a mixed model of assemblage-level diversity on standardized canopy cover at that radius, and read off which radius adds the most explained variance (largest gain in marginal R^2 over a matching null without the canopy term; equivalently the largest AIC improvement). That radius is the "scale of effect" for canopy cover.
 
 ### Five model specifications, so the scale peak and the canopy effect can be judged against how strongly other drivers are controlled for:
 ###   sampling        canopy + log(Num_pc)                              + (1|CollectorXyear)
@@ -30,11 +30,11 @@ radii_m <- c(seq(200, 2000, by = 200), seq(3000, 10000, by = 1000))
 
 # Load data ----
 
-## Canopy cover per [assemblage x radius], frozen by Scripts/07_wvsc.R (mean canopy within r m of the convex hull of the assemblage's point counts, from its own survey-year raster)
+## Canopy cover per [assemblage x radius], frozen by Scripts/06a_Extract_cc_buff.R (mean canopy within r m of the convex hull of the assemblage's point counts, from its own survey-year raster)
 Canopy_by_scale <- read_csv("Data/Geospatial/Canopy_by_scale_assemblage.csv", show_col_types = FALSE) %>%
   mutate(Id_gcs = as.character(Id_gcs))
 
-## Farm-level covariates: ecoregion, elevation, precipitation (Scripts/00_farm_covariates.R)
+## Farm-level covariates: ecoregion, elevation, precipitation (Scripts/01_farm_covariates.R)
 Farm_covariates <- read_csv("Data/Farm_covariates.csv", show_col_types = FALSE) %>%
   mutate(Id_gcs = as.character(Id_gcs)) %>%
   select(Id_gcs, Ecoregion, Elev_mean, Tot_prec_mean)

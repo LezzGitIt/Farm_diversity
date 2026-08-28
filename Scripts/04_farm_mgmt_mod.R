@@ -6,7 +6,7 @@
 ###   * "ecoregion" -- Ecoregion as a 5-level fixed effect (categorical adjustment; conservative, absorbs all between-region variation).
 ###   * "climate"   -- farm mean annual precipitation + elevation instead of the label (mechanistic adjustment; leaves more between-region variation for management to attach to, at the risk of residual confounding).
 
-### Response: log of the asymptotic Hill number (`TD_asy`) for q = 1 (Shannon) and q = 2 (Simpson), which the iNEXT4steps profiles in `02_Analysis_iNEXT.qmd` show do asymptote. Non-asymptotic richness (q = 0) is deferred until `02` re-exports a coverage-based SE for it (bundle with the nboot 100 -> 500 bump).
+### Response: log of the asymptotic Hill number (`TD_asy`) for q = 1 (Shannon) and q = 2 (Simpson), which the iNEXT4steps profiles in `00_bird_diversity_estimates.R` show do asymptote. Non-asymptotic richness (q = 0) is deferred until `02` re-exports a coverage-based SE for it (bundle with the nboot 100 -> 500 bump).
 
 ### Model per fit:
 ###   log(TD_asy) | resp_se(se_log, sigma = TRUE) ~ index_z + <adjustment> + log(Num_pc)_z + (1 | Id_gcs) + (1 | CollectorXyear)
@@ -41,11 +41,11 @@ adjustments <- c("ecoregion", "climate")
 
 # Load data ----
 
-## Farm-level table: the four diversification indices, ecoregion, and farm climate covariates, restricted to farms with a bird biodiversity estimate (Scripts/01_Match_farm_diversity.R)
+## Farm-level table: the four diversification indices, ecoregion, and farm climate covariates, restricted to farms with a bird biodiversity estimate (Scripts/02_match_farm_diversity.R)
 Farm_level <- read_csv("Derived/Excels/Farm_diversity_matched.csv", show_col_types = FALSE) %>%
   mutate(Id_gcs = as.character(Id_gcs))
 
-## Assemblage-level bird diversity estimates with their iNEXT bootstrap SE (latest date-stamped export from 02_Analysis_iNEXT.qmd)
+## Assemblage-level bird diversity estimates with their iNEXT bootstrap SE (latest date-stamped export from 00_bird_diversity_estimates.R)
 Tax_div <- read_csv(latest_file("Derived/Excels", "^Tax_div_all_farms_.*\\.csv$"), show_col_types = FALSE) %>%
   mutate(Id_gcs = as.character(Id_gcs))
 
@@ -86,7 +86,7 @@ predictors_to_scale <- c(div_indices, "Elev_mean", "Avg_temp_mean", "Tot_prec_me
 Model_data <- Model_data %>%
   mutate(across(all_of(predictors_to_scale), ~ as.numeric(scale(.x)), .names = "{.col}_z"))
 
-## Persist the modelling frame (raw + z-scored predictors, response, SE) so Scripts/04_plotting.R can map standardized axes back to raw index units and draw partial residuals without re-deriving the scaling
+## Persist the modelling frame (raw + z-scored predictors, response, SE) so Scripts/05_farm_mgmt_plots.R can map standardized axes back to raw index units and draw partial residuals without re-deriving the scaling
 Model_data %>%
   select(Assemblage, Id_gcs, Uniq_db, Ano_grp, Season, CollectorXyear, Hill,
          Ecoregion, TD_asy, `s.e.`, log_TD, se_log, Num_pc,

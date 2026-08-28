@@ -14,9 +14,18 @@ format:
 
 {{< pagebreak >}}
 
+::: callout-note
+**Reference document — not part of the reproducible pipeline.** This is the
+exploratory negative-binomial GLMM (bird richness ~ ecoregion + sampling
+covariates, no management predictor) that motivated the linking analysis. It is
+kept for the write-up and caveats; it writes no files and nothing downstream
+reads it. The running analysis is `Scripts/04_farm_mgmt_mod.R`, which folds a
+no-index baseline spec into the Bayesian measurement-error model.
+:::
+
 # Goal
 
-Analyze the farm-level taxonomic diversity estimates prepared in `02_Analysis_iNEXT.qmd` as a function of geographic and sampling predictors.
+Analyze the farm-level taxonomic diversity estimates prepared in `Scripts/00_bird_diversity_estimates.R` as a function of geographic and sampling predictors.
 
 ```{r}
 #| label: libraries

@@ -14,6 +14,14 @@ format:
 
 {{< pagebreak >}}
 
+::: callout-note
+**Reference document — not part of the reproducible pipeline.** The runnable
+version of the estimation is `Scripts/00_bird_diversity_estimates.R` (data prep →
+`iNEXT4steps` → the two `Tax_div_*` CSVs, self-contained). This `.qmd` is kept for
+the interpretation: the Cmax rationale, the iNEXT 4-steps framework, and the
+sample-completeness / rarefaction / evenness diagnostic plots.
+:::
+
 This script creates various species accumulation curves to generate comparable estimates of biodiversity across farms with different sampling efforts.
 
 See associated documents in SNAPP -\> Taxonomic diversity, as well as the associated Chao et al. (2020) paper.

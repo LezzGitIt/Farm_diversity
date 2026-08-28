@@ -1,6 +1,6 @@
 ---
 title: "Farm management diversification — exploratory summary and analysis plan"
-subtitle: "Figures from `Scripts/02_exploratory.R`, plus notes toward the linking model"
+subtitle: "Figures from `Scripts/03_exploratory.R`, plus notes toward the linking model"
 date: today
 format:
   pdf:
@@ -20,7 +20,7 @@ execute:
 ## Regenerate every figure object (p_distributions, p_corr, ... p_std) and the
 ## Ecoregion_variance table from the analysis script itself, so this report can
 ## never drift from the code. Fast -- no iNEXT bootstrap here.
-source("Scripts/02_exploratory.R")
+source("Scripts/03_exploratory.R")
 
 library(knitr)
 
@@ -207,7 +207,7 @@ between-ecoregion story and will be hard to separate from ecoregion itself.
 ## Carrying the uncertainty of the biodiversity estimates into the analysis
 
 The response variable is itself an *estimate* — each assemblage's Hill number
-comes from `02_Analysis_iNEXT.qmd` with a bootstrap standard error (`s.e.`) and a
+comes from `00_bird_diversity_estimates.R` with a bootstrap standard error (`s.e.`) and a
 95% interval (`qTD.LCL` / `qTD.UCL`, `nboot = 100`). Ignoring that treats a
 richness estimate from one lightly-sampled farm the same as a well-sampled one.
 Options, in increasing order of effort:
@@ -244,7 +244,7 @@ Two practical points:
   standard errors. Model at the assemblage level with `(1 | Id_gcs)` and
   `(1 | CollectorXyear)`, and the assemblage `s.e.` as measurement error.
 
-- Across repeated runs of `02_Analysis_iNEXT.qmd` the point estimates are
+- Across repeated runs of `00_bird_diversity_estimates.R` the point estimates are
   identical but the bootstrap `s.e.` values move a little — the SE has its own
   Monte-Carlo noise at `nboot = 100`. Raise `nboot` to $\geq$ 500 before relying
   on the SEs quantitatively.

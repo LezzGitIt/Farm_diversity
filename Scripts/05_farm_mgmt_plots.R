@@ -1,6 +1,6 @@
 # Figures for the bird-diversity ~ management-diversification linking models ----
 
-### Reads the fitted models and summary tables written by Scripts/03_linking_model.R and builds the figures. Each plot object is both saved to Figures/ and printed, and this script is safe to source() -- it never refits. The plot objects are named so they can be pulled into .qmd reports and the manuscript later.
+### Reads the fitted models and summary tables written by Scripts/04_farm_mgmt_mod.R and builds the figures. Each plot object is both saved to Figures/ and printed, and this script is safe to source() -- it never refits. The plot objects are named so they can be pulled into .qmd reports and the manuscript later.
 
 # Setup ----
 library(tidyverse)
