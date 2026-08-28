@@ -29,6 +29,9 @@ library(knitr)
 
 bare <- function(p) p + labs(title = NULL, subtitle = NULL)
 
+## fit-dependent figures are absent on an interim render (no cached brms fits)
+has_fits <- !is.null(p_index_conditional)
+
 mm_all <- read_csv("Derived/Excels/Farm_mgmt_model_summaries.csv", show_col_types = FALSE)
 if (!"data_subset" %in% names(mm_all)) mm_all$data_subset <- "all"  # pre-distance-sensitivity file
 soe    <- read_csv("Derived/Excels/Scale_effect_results.csv", show_col_types = FALSE)
@@ -119,9 +122,12 @@ mm %>%
 #| label: fig-conditional
 #| fig-width: 9
 #| fig-height: 7
+#| eval: !expr has_fits
 
 bare(p_index_conditional)
 ```
+
+`r if (!has_fits) "*(Conditional-effect and posterior-predictive figures omitted -- this is an interim render with no cached model fits.)*"`
 
 ## Distance-to-farm sensitivity
 
@@ -131,6 +137,13 @@ keeping only assemblages within 500 m of the farm on average, the index models
 for the two primary specs are refitted on that subset and the focal coefficient
 compared to the full-data fit. Point-count distances are near zero for most
 assemblages, so the subset drops only a handful.
+
+```{r}
+#| label: dist-sens-check
+has_on_farm <- "on_farm" %in% mm_all$data_subset
+```
+
+`r if (!has_on_farm) "**Interim render:** the on-farm-only subset has not been fitted yet (waiting on the bird-diversity script). The figure and table below show the full-data fits only; they will gain the on-farm comparison on the next pipeline run."`
 
 ```{r}
 #| label: fig-dist-sens
@@ -151,8 +164,9 @@ mm_all %>%
   mutate(hill = recode(hill, !!!hill_lab), index = recode(index, !!!index_lab),
          spec = recode(spec, !!!spec_lab)) %>%
   arrange(spec, hill, index) %>%
-  kable(col.names = c("Response", "Index", "Region adj.", "All assemblages", "On-farm only"),
-        caption = "Focal index coefficient (median [90% CrI], n assemblages): full data vs on-farm-only subset.")
+  rename_with(~ recode(.x, all = "All assemblages", on_farm = "On-farm only",
+                       hill = "Response", index = "Index", spec = "Region adj.")) %>%
+  kable(caption = "Focal index coefficient (median [90% CrI], n assemblages): full data vs on-farm-only subset.")
 ```
 
 ## Diagnostics
@@ -174,6 +188,7 @@ mm_all %>%
 #| label: fig-ppcheck
 #| fig-width: 9
 #| fig-height: 8
+#| eval: !expr has_fits
 
 p_ppcheck
 ```
@@ -249,8 +264,17 @@ cat("- **Canopy scale of effect:** net of elevation + precipitation, bird divers
     "the range (best radius for q = 0 richness: ", best_soe$radius_m, " m, standardized effect +",
     round(best_soe$canopy_beta, 2), "). The within-ecoregion (Mundlak) effect is weak, so ",
     "much of it is a between-region landscape gradient.\n", sep = "")
-cat("- **Distance-to-farm:** restricting to assemblages whose point counts average ",
-    "< 500 m from the farm leaves the index coefficients essentially unchanged (§2.3).\n", sep = "")
+if (has_on_farm) {
+  d_all <- mm_all %>% filter(term == "focal_z", data_subset == "all", spec %in% c("ecoregion", "climate"), index != "baseline")
+  d_onf <- mm_all %>% filter(term == "focal_z", data_subset == "on_farm", spec %in% c("ecoregion", "climate"), index != "baseline")
+  max_shift <- max(abs(d_all$estimate - d_onf$estimate[match(
+    paste(d_all$hill, d_all$index, d_all$spec), paste(d_onf$hill, d_onf$index, d_onf$spec))]), na.rm = TRUE)
+  cat("- **Distance-to-farm:** restricting to assemblages whose point counts average ",
+      "< 500 m from the farm shifts every index coefficient by at most ",
+      sprintf("%.3f", max_shift), " SD -- the indices are not driven by off-farm counts (§2.3).\n", sep = "")
+} else {
+  cat("- **Distance-to-farm:** the on-farm-only subset is not yet fitted; this render is interim (§2.3).\n", sep = "")
+}
 cat("- **Still to do:** the DAG; a Piedemonte-only cut; a distance-to-nearest-farm ",
     "covariate; radii beyond 10 km for a cleaner scale-of-effect peak.\n", sep = "")
 ```

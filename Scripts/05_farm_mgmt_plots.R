@@ -47,9 +47,13 @@ Full <- Model_summaries %>% filter(data_subset == "all")
 
 Model_data <- read_csv("Derived/Excels/Farm_mgmt_model_data.csv", show_col_types = FALSE)
 
-## brms fits, keyed by the 04 filename convention mod_<hill>__<index>__<spec>.rds
+## brms fits, keyed by the 04 filename convention mod_<hill>__<index>__<spec>__<data_subset>.rds
 mod_fit_files <- list.files("Derived/models", pattern = "^mod_.*\\.rds$", full.names = TRUE)
 mod_fits <- set_names(map(mod_fit_files, readRDS), str_remove(basename(mod_fit_files), "\\.rds$"))
+
+## the fit-dependent figures (pp-checks, conditional effects) are skipped when no .rds are present, e.g. an interim render before 04 has run
+have_fits <- length(mod_fits) > 0
+if (!have_fits) message("05: no fitted models in Derived/models/ -- skipping pp-check and conditional-effect figures.")
 
 # Figure 1: management-diversification coefficient across specs ----
 
@@ -111,6 +115,8 @@ ggsave("Figures/Farm_mgmt_dist_sensitivity.png", p_dist_sensitivity, bg = "white
 print(p_dist_sensitivity)
 
 # Figure 3: posterior predictive checks ----
+
+if (have_fits) {
 
 ppcheck_keys <- names(mod_fits) %>% keep(~ str_detect(.x, "__All_practices_div__(ecoregion|climate)__all$"))
 ppcheck_panels <- map(ppcheck_keys, function(key) {
@@ -175,3 +181,8 @@ p_index_conditional <- ggplot(Conditional_lines, aes(index_value, diversity)) +
   theme(legend.position = "bottom")
 ggsave("Figures/Farm_mgmt_index_conditional.png", p_index_conditional, bg = "white", width = 10, height = 8)
 print(p_index_conditional)
+
+} else {
+  p_ppcheck <- NULL
+  p_index_conditional <- NULL
+}
