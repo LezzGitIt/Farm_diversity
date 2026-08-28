@@ -19,15 +19,15 @@ dir.create("Derived/Excels", recursive = TRUE, showWarnings = FALSE)
 # FarmDiv        EXPOSURE. One of the four [0-1] farm-management diversification indices from Maria Esquivel (Land_use_div / Water_mgmt_div / Pasture_mgmt_div / All_practices_div). One model per index.
 # BirdDiv        OUTCOME. The iNEXT Hill-number diversity estimate for the assemblage (q = 0/1/2), i.e. the *observed / estimated* diversity -- so every sampling variable points into it. Point-count duration differences across datasets are NOT a node: iNEXT's individual-based accumulation + coverage standardisation already absorb them.
 # Ecoregion      5-level biogeographic region. A coarse categorical summary of Climate + LandForest + regional species pool; the SCR programme also rolled out differently by region, so it also sits upstream of FarmDiv.
-# Climate        Farm-mean precipitation + elevation (temperature is r = -0.99 with elevation, same node). One conceptual node, two columns (Elev_mean, Tot_prec_mean), entered as poly(.,2) in 04.
-# LandForest     Amount of woody-vegetation cover in the surrounding landscape (WVCC canopy at the 06b scale-of-effect radius, ~10 km). "Landscape forest" in the drawing.
-# ForestConfig   Configuration / fragmentation of that landscape forest (connectivity, edge). UNOBSERVED -- we only have the amount, not the configuration. A stated limitation.
-# FarmerValues   UNOBSERVED farmer priorities / attitudes. Drives both how much a farmer diversifies management AND the land-use context they sit in / maintain. The reason LandForest must be adjusted, not just added for precision.
-# NumHab         Number of DISTINCT HABITAT TYPES that were surveyed on the farm (bosque / ssp / pasture / ...). PURELY A SAMPLING COVARIATE (Aaron, 2026-08-28): surveying more habitat types turns up more species. NOT a mediator of FarmDiv and NOT farm habitat heterogeneity per se -- it is what the point counts happened to cover.
-# NumPC          Number of distinct point counts on the farm contributing to the assemblage. Sampling effort.
-# Season         Month / season of the surveys (Nearctic-migrant timing). Column: mean Julian day -> doy_sin/doy_cos.
-# Year           Survey year. Fixed Year was dropped from 04 earlier (near-collinear with Observer); kept here as a node because it is a real cause of the estimate.
-# Observer       Who ran the surveys and under what protocol (radius, duration, single vs repeat visits). Operationally = the CollectorXyear random effect. Region-bound (4 of 6 collectors are Piedemonte-only).
+# Climate        Farm-mean precipitation + elevation (confirmed: elevation IS part of this node; temperature is r = -0.99 with elevation so dropped). Two columns (Elev_mean, Tot_prec_mean), entered as poly(.,2) in 04.
+# LandForest     Amount of woody-vegetation cover in the surrounding landscape (WVCC canopy at the 06b scale-of-effect radius, ~10 km). "Landscape forest" in the drawing. R^2 ~ 0.45 with Ecoregion -- NOT covered by it, ~58% of its SD is within-region.
+# ForestConfig   Configuration / fragmentation of that landscape forest (connectivity, edge, patch size) -- confirmed, distinct from the amount. UNOBSERVED. Not confounding (no arrow to FarmDiv), just unmodelled outcome noise.
+# FarmerValues   UNOBSERVED farmer priorities / attitudes. Drives how much a farmer diversifies management AND the land-use context they maintain. Confirmed: NO direct arrow to BirdDiv -> conditioning on LandForest fully blocks it *as drawn*. The reason LandForest must be adjusted, not just added for precision.
+# NumHab         Number of DISTINCT HABITAT TYPES SURVEYED on the farm. A SAMPLING-SCOPE covariate (distinct from NumPC = effort). CRITICAL: the sampling scope changed over time -- 2013 and 2016/17 surveys covered FOREST ONLY; 2019 onward covered the land-use gradient (forest + silvopasture + pasture). So early-year assemblages have low NumHab and their diversity estimate reflects forest birds, not the whole farm. NumHab + the Observer(CollectorXyear) RE + Year together are what control for this. Not a mediator of FarmDiv.
+# NumPC          Number of distinct point counts in the assemblage (per [farm x team x year], confirmed -- not per farm). Sampling effort.
+# Season         Calendar timing of the surveys within the season (Nearctic-migrant influx Oct-Mar). All modelled data is "Early" season, so this is purely the within-Early calendar position. Column: mean Julian day -> doy_sin/doy_cos.
+# Year           Survey year-group (Ano_grp: 13_14, 16_17, 19, 22, 24, 25_26). Fixed Year was dropped from 04 (near-collinear with Observer); folded into the Observer/CollectorXyear RE. Kept as a node because the sampling-scope change above is a Year effect.
+# Observer       The data collector x year-group batch = one of 6 field teams / 8 CollectorXyear levels (Gaica-mbd, Cipav, Gaica-distancia, Unillanos, UBC-mbd, UBC-gaica). Protocol + which farms + which habitats surveyed. NOT the individual observer (not in the data). Region-bound (4 of 6 teams are Piedemonte-only). = the CollectorXyear random effect.
 
 # The DAG ----
 
@@ -58,6 +58,7 @@ dag <- dagitty('dag {
 
   Year -> Observer
   Year -> BirdDiv
+  Year -> NumHab
   Observer -> Season
   Season -> BirdDiv
   Observer -> NumPC
@@ -66,6 +67,8 @@ dag <- dagitty('dag {
   NumPC -> BirdDiv
   NumHab -> BirdDiv
 }')
+
+### Year -> NumHab: the sampling-SCOPE norm shifted around 2019 -- 2013 & 2016/17 surveys were forest-only, 2019+ spanned the land-use gradient. So NumHab (habitat types surveyed) is low in the early years by protocol, not by farm. This is a Year effect on top of the team effect (Observer -> NumHab). Controlling NumHab + the CollectorXyear RE handles it, but the early forest-only assemblages are, in effect, estimating forest-bird diversity rather than whole-farm diversity -- a caveat for interpreting those rows. See Project_notes.md "Background: the source bird dataset".
 
 ### NOT drawn, and why:
 # - Ecoregion -> BirdDiv direct: omitted per Aaron\'s DAG -- Ecoregion acts on birds only THROUGH Climate + LandForest (+ the unmeasured species pool). If a residual species-pool effect exists, the climate spec under-adjusts; the ecoregion robustness spec is the guard against that.
