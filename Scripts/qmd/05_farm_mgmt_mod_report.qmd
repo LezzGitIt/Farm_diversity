@@ -30,6 +30,7 @@ library(knitr)
 bare <- function(p) p + labs(title = NULL, subtitle = NULL)
 
 mm_all <- read_csv("Derived/Excels/Farm_mgmt_model_summaries.csv", show_col_types = FALSE)
+if (!"data_subset" %in% names(mm_all)) mm_all$data_subset <- "all"  # pre-distance-sensitivity file
 soe    <- read_csv("Derived/Excels/Scale_effect_results.csv", show_col_types = FALSE)
 
 ## §2.1-2.2 and §2.4 describe the primary fits (full data); the on-farm subset feeds only the §2.3 distance-sensitivity subsection

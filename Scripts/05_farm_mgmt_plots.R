@@ -34,6 +34,8 @@ identifiable_indices <- c("Land_use_div", "All_practices_div")
 # Load 04 outputs ----
 
 Model_summaries <- read_csv("Derived/Excels/Farm_mgmt_model_summaries.csv", show_col_types = FALSE) %>%
+  ## tolerate a pre-distance-sensitivity summaries file (no data_subset column)
+  { if ("data_subset" %in% names(.)) . else mutate(., data_subset = "all") } %>%
   mutate(
     Hill = factor(recode(hill, !!!hill_labels), levels = hill_order),
     Index = factor(recode(index, !!!index_labels), levels = index_order),
