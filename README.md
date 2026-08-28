@@ -149,12 +149,16 @@ precipitation are controlled for, bird richness is positively associated with
 woody-vegetation canopy cover in the surrounding landscape, peaking at ~8–9 km
 (a broad landscape signal, not a farm-scale one).
 
-The causal DAG (`dag.R`) confirms the two-spec design: the minimal adjustment set
-is {Ecoregion, elevation, precipitation, sampling effort}, `Ecoregion` and the
-climate axes are ~80 % collinear so neither spec is individually sufficient, and
-the two act as bounding cases that agree. Habitat count is a mediator (kept out
-of the total-effect model).
+The causal DAG (`dag.R`, from Aaron's hand-drawn version) gives a minimal
+adjustment set of {climate, landscape forest cover, observer/season/year} — i.e.
+the **climate spec is the DAG-sufficient primary** (climate + canopy + sampling),
+and `Ecoregion` is redundant given those. The `ecoregion` spec is a robustness
+check (the 5-level factor proxying climate, ~80 % R²). Habitat count is a
+*sampling* covariate (number of habitat types surveyed), not a mediator. Canopy
+must be adjusted (not just added for precision) because it blocks an unobserved
+farmer-values backdoor.
 
-Still to do: apply the 300 m distance-to-farm cutoff as primary; add quadratic
-elevation/precipitation to the climate spec; a Piedemonte-only cut. See
-`Project_notes.md` (local only) for full session notes.
+Still to do: apply the DAG (climate spec primary, drop the num-hab sensitivity
+spec, add canopy to the ecoregion spec) + the 300 m cutoff + quadratic
+elevation/precipitation; a Piedemonte-only cut; LOO for the nuisance terms
+(deferred). See `Project_notes.md` (local only) for full session notes.
