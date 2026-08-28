@@ -43,12 +43,15 @@ adapt_delta <- 0.97
 
 div_indices <- c("Land_use_div", "Water_mgmt_div", "Pasture_mgmt_div", "All_practices_div")
 
-## Region-adjustment specs: the non-focal fixed effects and whether this is a sensitivity spec
+## Region-adjustment specs: the non-focal fixed effects and whether this is a sensitivity spec.
+## The "climate" spec also carries canopy cover in the surrounding 10 km landscape -- the scale
+## that best explains diversity in Scripts/06b_scale_of_effect.R, and another mechanism Ecoregion
+## proxies for. Only moderately correlated with elevation (r ~ 0.44), so it sits alongside it fine.
 specs <- tribble(
-  ~spec,               ~region_fixed,                    ~extra_fixed,   ~sensitivity,
-  "ecoregion",         "Ecoregion",                      "",             FALSE,
-  "climate",           "Tot_prec_mean_z + Elev_mean_z",  "",             FALSE,
-  "ecoregion_numhab",  "Ecoregion",                      "Num_hab_z",    TRUE
+  ~spec,               ~region_fixed,                                       ~extra_fixed,   ~sensitivity,
+  "ecoregion",         "Ecoregion",                                         "",             FALSE,
+  "climate",           "Tot_prec_mean_z + Elev_mean_z + canopy_10k_z",      "",             FALSE,
+  "ecoregion_numhab",  "Ecoregion",                                         "Num_hab_z",    TRUE
 )
 
 # Load data ----
@@ -71,16 +74,21 @@ Td_asy <- read_csv(latest_file("Derived/Excels", "^Tax_div_all_farms_.*\\.csv$")
 cov65 <- read_csv(latest_file("Derived/Excels", "^Tax_div_coverage65_.*\\.csv$"), show_col_types = FALSE) %>%
   mutate(Id_gcs = as.character(Id_gcs))
 
-Td_rich <- if ("No_Asy_TD_se" %in% names(cov65)) {
-  cov65 %>%
-    filter(Order.q == 0) %>%
-    transmute(Assemblage, Id_gcs, Uniq_db, Ano_grp, Season, Num.hab,
-              Hill = "richness", response = No_Asy_TD, response_se = No_Asy_TD_se)
-} else {
-  message("coverage65 export has no No_Asy_TD_se -- skipping q = 0 richness ",
-          "(re-run Scripts/00_bird_diversity_estimates.R to add it).")
-  NULL
+## q = 0 uses the non-asymptotic estimate. Its measurement-error SE (`No_Asy_TD_se`,
+## coverage-based) only comes from the current `Scripts/00_bird_diversity_estimates.R`.
+## If the export predates that, q = 0 is still fitted but with a negligible placeholder
+## SE (1e-4) -- i.e. an ordinary model, no measurement error. TEMPORARY: re-run once
+## `00` finishes so the q = 0 CrIs reflect the estimation uncertainty.
+q0_has_se <- "No_Asy_TD_se" %in% names(cov65)
+if (!q0_has_se) {
+  warning("coverage65 export has no No_Asy_TD_se -- q = 0 fitted WITHOUT measurement error ",
+          "(placeholder SE). Re-run Scripts/00_bird_diversity_estimates.R and this script.")
 }
+Td_rich <- cov65 %>%
+  filter(Order.q == 0) %>%
+  transmute(Assemblage, Id_gcs, Uniq_db, Ano_grp, Season, Num.hab,
+            Hill = "richness", response = No_Asy_TD,
+            response_se = if (q0_has_se) No_Asy_TD_se else 1e-4 * No_Asy_TD)
 
 Tax_div_long <- bind_rows(Td_rich, Td_asy)
 responses <- sort(unique(Tax_div_long$Hill))
@@ -96,12 +104,18 @@ Assemblage_covs <- read_csv(paste0(wrangling_excels, "Site_covs.csv"), show_col_
   summarize(Num_pc = n_distinct(Id_muestreo),
             doy = mean(Julian_day, na.rm = TRUE), .by = Assemblage)
 
+## Canopy cover in the surrounding 10 km (Scripts/06a_Extract_cc_buff.R) -- the landscape scale that best explains diversity; used only in the "climate" (no-Ecoregion) spec
+Canopy_10k <- read_csv("Data/Geospatial/Canopy_by_scale_assemblage.csv", show_col_types = FALSE) %>%
+  filter(radius_m == 10000) %>%
+  transmute(Assemblage, canopy_10k = canopy_cover)
+
 # Build the modelling frame ----
 
 ## One row per [assemblage x response], with predictors, the log-scale response + SE, and the grouping factors
 Model_data <- Tax_div_long %>%
   semi_join(Farm_level, by = "Id_gcs") %>%
   left_join(Assemblage_covs, by = "Assemblage") %>%
+  left_join(Canopy_10k, by = "Assemblage") %>%
   left_join(
     Farm_level %>% select(Id_gcs, Ecoregion, all_of(div_indices),
                           Elev_mean, Avg_temp_mean, Tot_prec_mean),
@@ -121,7 +135,7 @@ Model_data <- Tax_div_long %>%
 
 ## z-score continuous predictors across the modelling rows (per-response scaling would fragment the interpretation; the row set is near-identical across responses)
 predictors_to_scale <- c(div_indices, "Elev_mean", "Avg_temp_mean", "Tot_prec_mean",
-                         "Num_pc_log", "Num_hab_num")
+                         "Num_pc_log", "Num_hab_num", "canopy_10k")
 Model_data <- Model_data %>%
   mutate(across(all_of(predictors_to_scale), ~ as.numeric(scale(.x)), .names = "{.col}_z")) %>%
   rename(Num_hab_z = Num_hab_num_z)
@@ -164,6 +178,7 @@ frame_for <- function(hill, index, region_fixed, extra_fixed) {
   if (str_detect(region_fixed, "prec|Elev")) {
     df <- df %>% filter(!is.na(Tot_prec_mean_z), !is.na(Elev_mean_z))
   }
+  if (str_detect(region_fixed, "canopy_10k")) df <- df %>% filter(!is.na(canopy_10k_z))
   if (nzchar(extra_fixed)) df <- df %>% filter(!is.na(Num_hab_z))
   df
 }
@@ -231,9 +246,13 @@ Model_summaries <- pmap(fit_grid, function(hill, index, spec, key, ...) {
     relocate(hill, index, spec)
 }) %>%
   list_rbind() %>%
-  mutate(across(c(estimate, conf_low, conf_high, p_direction_pos, bayes_R2), ~ round(.x, 4)))
+  mutate(across(c(estimate, conf_low, conf_high, p_direction_pos, bayes_R2), ~ round(.x, 4)),
+         ## flag the q = 0 rows fitted without a real measurement-error SE
+         note = if_else(hill == "richness" & !q0_has_se, "q0 placeholder SE -- rerun after 00", ""))
 
 write_csv(Model_summaries, "Derived/Excels/Farm_mgmt_model_summaries.csv")
+
+if (!q0_has_se) message("NOTE: q = 0 fitted without measurement error (placeholder SE). Re-run after Scripts/00_bird_diversity_estimates.R.")
 
 # Report ----
 
