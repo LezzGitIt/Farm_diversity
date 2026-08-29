@@ -1,32 +1,30 @@
-# Regional species-pool covariate from Ayerbe range maps ----
+# Regional species-pool covariate from Ayerbe range maps + Suarez-Castro elevational limits ----
 
-### Builds a per-farm "regional species pool" covariate: the number of bird species whose Colombian range (Ayerbe et al. range maps) overlaps a buffer around the farm. This is the one thing `Ecoregion` carries that elevation + climate + canopy do not (the biogeographic species pool) -- see Scripts/dag.R and Scripts/qmd/Species_pool_proposal.qmd. Intended as a continuous covariate for the "climate" model version in Scripts/04_farm_mgmt_mod.R, so that version can stand without the `Ecoregion` factor.
+### Per-farm "how many bird species could occur here" -- a potential-species-pool covariate. Range maps and published elevational limits are external to the point-count data, so this is NOT circular: it predicts the regional avifauna available to a farm without any knowledge of what was surveyed there. It is the one thing `Ecoregion` carries that elevation + climate + canopy in Scripts/04_farm_mgmt_mod.R do not (biogeographic species pool); see Scripts/dag.R and Scripts/qmd/Species_pool_proposal.qmd.
 
-### Two counts per farm, at three buffer radii (25 / 50 / 100 km):
-###   * pool_all       -- every species whose range polygon intersects the buffer
-###   * pool_elevband  -- only those species whose Colombian elevational range also overlaps the farm's elevation +/- 300 m, so the covariate is a *biogeographic residual* rather than elevational turnover (which the model's Elev term already handles)
+### Two-step filter per farm:
+###   1. GEOSPATIAL -- the species' Ayerbe Colombian range polygon contains the farm (point-in-polygon; also computed at a 10 km and 25 km buffer for robustness to farm-centroid / polygon-edge imprecision).
+###   2. ELEVATIONAL -- the farm's elevation falls within the species' elevational range +/- `elev_margin_m`, using Minimum/Maximum elevation from Suarez-Castro et al. (2024) AOH table S3 (1,652 Colombian species). Species with no elevational limit (~17%, mostly Nearctic migrants and waterbirds) pass this step.
 
-### Frozen covariate, written to Data/Farm_species_pool.csv and treated as raw input (like Data/Farm_covariates.csv). Re-run only when the range maps or the farm set change. The combined range layer and per-species elevation envelope are cached in Data/Geospatial/.
+### `pool_point` (no buffer) is the primary metric. Frozen covariate -> Data/Farm_species_pool.csv, treated as raw input like Data/Farm_covariates.csv. The combined Ayerbe range layer is cached in Data/Geospatial/Ayerbe_ranges.gpkg (the 1,890 shapefile reads are slow on a cold OneDrive).
 
 # Setup ----
 library(tidyverse)
 library(sf)
-library(terra)
 
 sf::sf_use_s2(TRUE)
 dir.create("Data/Geospatial", recursive = TRUE, showWarnings = FALSE)
 dir.create("Figures", showWarnings = FALSE)
 
-ayerbe_dir <- "../Geospatial_data/Ayerbe_shapefiles_1890spp"
-dem_path   <- "../Geospatial_data/Environmental/elevation/COL_elv_msk.tif"
-
+ayerbe_dir   <- "../Geospatial_data/Ayerbe_shapefiles_1890spp"
+suarez_path  <- "/Users/aaronskinner/Library/CloudStorage/OneDrive-UBC/Academia/Datasets_external/Elev_ranges/Suarez_castro_AOH_birds_table_S3_V3.csv"
 ranges_cache <- "Data/Geospatial/Ayerbe_ranges.gpkg"
 
-radii_km <- c(25, 50, 100)
-elev_band_m <- 300
-metric_crs <- 3116   # MAGNA-SIRGAS / Colombia Bogota -- national, metres
+buffer_km    <- c(0, 10, 25)   # 0 = point-in-polygon (primary)
+elev_margin_m <- 250
+metric_crs   <- 3116           # MAGNA-SIRGAS / Colombia Bogota -- national, metres
 
-# Combined range layer (cached) ----
+# Combined Ayerbe range layer (cached) ----
 
 if (file.exists(ranges_cache)) {
   message("loading cached range layer: ", ranges_cache)
@@ -46,111 +44,103 @@ if (file.exists(ranges_cache)) {
     map(~ st_transform(.x, 4326)) %>%
     bind_rows() %>%
     st_make_valid()
-  ## keep only polygonal geometry, cast to a single type for the gpkg
   ranges <- ranges[st_is(ranges, c("POLYGON", "MULTIPOLYGON")), ] %>%
     st_cast("MULTIPOLYGON", warn = FALSE)
   st_write(ranges, ranges_cache, delete_dsn = TRUE, quiet = TRUE)
   message("wrote ", ranges_cache, ": ", n_distinct(ranges$species), " species, ", nrow(ranges), " features")
 }
 
+# Elevational limits: Suarez-Castro et al. (2024) AOH table S3 ----
+
+suarez <- read_csv(suarez_path, show_col_types = FALSE) %>%
+  select(Scientific.Name, Name.Clements.eBird., Minimum.elevation, Maximum.elevation)
+
+## one row per name (BirdLife or Clements), so an Ayerbe species can match on either
+suarez_by_name <- bind_rows(
+  suarez %>% transmute(name = Scientific.Name, elev_lo = Minimum.elevation, elev_hi = Maximum.elevation),
+  suarez %>% transmute(name = Name.Clements.eBird., elev_lo = Minimum.elevation, elev_hi = Maximum.elevation)
+) %>%
+  filter(!is.na(name), !is.na(elev_lo)) %>%
+  distinct(name, .keep_all = TRUE)
+
+elev_lookup <- tibble(species = sort(unique(ranges$species))) %>%
+  left_join(suarez_by_name, by = c("species" = "name"))
+n_with_elev <- sum(!is.na(elev_lookup$elev_lo))
+message(n_with_elev, " of ", nrow(elev_lookup), " Ayerbe species matched to a Suarez-Castro elevational range (",
+        round(100 * n_with_elev / nrow(elev_lookup)), "%); the rest pass the elevation filter unfiltered")
+
 # Farms ----
 
 fc <- read_csv("Data/Farm_covariates.csv", show_col_types = FALSE) %>%
   mutate(Id_gcs = as.character(Id_gcs))
-farms <- st_as_sf(fc, coords = c("Long_mean", "Lat_mean"), crs = 4326)
-
-# Project farms + ranges to a metric CRS ----
-
+farms   <- st_as_sf(fc, coords = c("Long_mean", "Lat_mean"), crs = 4326)
 ranges_m <- st_transform(ranges, metric_crs)
 farms_m  <- st_transform(farms, metric_crs)
 
-# Per-farm elevation-band region (DEM cells within farm elevation +/- 300 m, inside the 100 km buffer) ----
+elo <- set_names(elev_lookup$elev_lo, elev_lookup$species)
+ehi <- set_names(elev_lookup$elev_hi, elev_lookup$species)
 
-## An earlier version used each species' global elevational min/max from the DEM, but Ayerbe range polygons are single blobs, so a montane species' [min, max] spans the whole gradient and the +/- 300 m filter removes nothing. Instead: build the actual elevation-band terrain around each farm and count only species whose range overlaps it.
+# Pool per farm x buffer ----
 
-dem <- rast(dem_path)
-band_poly <- map(seq_len(nrow(farms)), function(i) {
-  fe <- fc$Elev_mean[i]
-  buf100 <- st_buffer(farms_m[i, ], max(radii_km) * 1000) %>% st_transform(st_crs(dem))
-  dcrop <- crop(dem, vect(buf100))
-  band <- (dcrop >= fe - elev_band_m) & (dcrop <= fe + elev_band_m)
-  band[band == 0] <- NA
-  bp <- tryCatch(st_as_sf(as.polygons(band, dissolve = TRUE)), error = function(e) NULL)
-  if (is.null(bp) || nrow(bp) == 0) return(NULL)
-  st_transform(st_union(st_geometry(bp)), metric_crs)
-})
-
-# Pool counts per farm x radius ----
-
-pool_long <- map(radii_km, function(rk) {
+pool_long <- map(buffer_km, function(bk) {
+  geom <- if (bk == 0) st_geometry(farms_m) else st_buffer(st_geometry(farms_m), bk * 1000)
   map_dfr(seq_len(nrow(farms)), function(i) {
-    buf_i <- st_buffer(farms_m[i, ], rk * 1000)
-    hit_i <- ranges_m[st_intersects(buf_i, ranges_m)[[1]], ]
-    n_all <- n_distinct(hit_i$species)
-    bp <- band_poly[[i]]
-    if (is.null(bp) || length(bp) == 0) {
-      n_band <- NA_integer_
-    } else {
-      region_i <- suppressWarnings(st_intersection(st_geometry(buf_i), bp))
-      n_band <- if (length(region_i) == 0) 0L
-                else n_distinct(hit_i$species[lengths(st_intersects(hit_i, region_i)) > 0])
-    }
-    tibble(Id_gcs = farms$Id_gcs[i], radius_km = rk, pool_all = n_all, pool_elevband = n_band)
+    sp_geo <- unique(ranges_m$species[st_intersects(geom[i], ranges_m)[[1]]])   # step 1
+    fe <- fc$Elev_mean[i]
+    lo <- elo[sp_geo]; hi <- ehi[sp_geo]
+    in_band <- is.na(lo) | (hi >= fe - elev_margin_m & lo <= fe + elev_margin_m) # step 2 (NA elev -> keep)
+    tibble(Id_gcs = fc$Id_gcs[i], buffer_km = bk,
+           pool_geo = length(sp_geo), pool = sum(in_band))
   })
 }) %>% list_rbind()
 
-message(pool_long %>% filter(radius_km == max(radii_km)) %>% pull(pool_all) %>% max(),
-        " species in the largest single-farm pool; ",
-        round(100 * mean(pool_long$pool_elevband / pool_long$pool_all, na.rm = TRUE)),
-        "% survive the elevation-band filter on average")
-
 Farm_species_pool <- pool_long %>%
-  select(Id_gcs, radius_km, pool_all, pool_elevband) %>%
-  pivot_wider(names_from = radius_km, values_from = c(pool_all, pool_elevband),
-              names_glue = "{.value}_{radius_km}k") %>%
-  left_join(fc %>% select(Id_gcs, Nombre_finca, Ecoregion, Elev_mean), by = "Id_gcs")
+  select(Id_gcs, buffer_km, pool_geo, pool) %>%
+  pivot_wider(names_from = buffer_km, values_from = c(pool_geo, pool),
+              names_glue = "{.value}_{buffer_km}km") %>%
+  rename_with(~ str_replace(.x, "_0km$", "_point"))
 
-write_csv(Farm_species_pool %>% select(-Nombre_finca, -Ecoregion, -Elev_mean),
-          "Data/Farm_species_pool.csv")
+write_csv(Farm_species_pool, "Data/Farm_species_pool.csv")
 
 # Diagnostics ----
 
-cat("\n== Regional species pool per farm ==\n")
-Farm_species_pool %>%
-  select(Ecoregion, starts_with("pool_")) %>%
-  summarize(across(starts_with("pool_"), ~ sprintf("%.0f (%.0f-%.0f)", mean(.x), min(.x), max(.x))), .by = Ecoregion) %>%
-  arrange(Ecoregion) %>%
-  print(width = Inf)
+pool_eco <- Farm_species_pool %>%
+  left_join(fc %>% select(Id_gcs, Ecoregion, Elev_mean, Tot_prec_mean), by = "Id_gcs")
 
-r2_eco <- Farm_species_pool %>%
-  select(Ecoregion, starts_with("pool_")) %>%
-  pivot_longer(-Ecoregion, names_to = "metric") %>%
-  summarize(r2_ecoregion = round(summary(lm(value ~ Ecoregion))$r.squared, 2), .by = metric)
-cat("\nR^2 of  pool ~ Ecoregion  (should be high -- the pool is meant to carry the between-region signal):\n")
-print(r2_eco)
+cat("\n== Species pool per farm (mean [range]) ==\n")
+pool_eco %>%
+  summarize(across(c(pool_point, pool_10km, pool_25km, pool_geo_point),
+                   ~ sprintf("%.0f [%.0f-%.0f]", mean(.x), min(.x), max(.x))), .by = Ecoregion) %>%
+  arrange(Ecoregion) %>% print(width = Inf)
 
-## how much of each metric survives within-ecoregion (the part that could add signal beyond the Ecoregion factor)
-cat("\nwithin-ecoregion SD as a fraction of total SD, by metric:\n")
-Farm_species_pool %>%
-  select(Ecoregion, starts_with("pool_")) %>%
-  pivot_longer(-Ecoregion, names_to = "metric") %>%
-  summarize(frac_within = round(sd(value - ave(value, Ecoregion)) / sd(value), 2), .by = metric) %>%
-  print()
+cat("\nelevation filter effect (pool / pool_geo):\n")
+pool_eco %>%
+  summarize(point = round(mean(pool_point / pool_geo_point), 2),
+            b25 = round(mean(pool_25km / pool_geo_25km), 2)) %>% print()
+
+cat("\npool ~ Ecoregion R^2, and correlation with precipitation / elevation:\n")
+tibble(metric = c("pool_point", "pool_10km", "pool_25km")) %>%
+  mutate(
+    r2_ecoregion = map_dbl(metric, ~ summary(lm(pool_eco[[.x]] ~ pool_eco$Ecoregion))$r.squared),
+    r_precip     = map_dbl(metric, ~ cor(pool_eco[[.x]], pool_eco$Tot_prec_mean)),
+    r_elevation  = map_dbl(metric, ~ cor(pool_eco[[.x]], pool_eco$Elev_mean)),
+    frac_within_eco = map_dbl(metric, ~ sd(pool_eco[[.x]] - ave(pool_eco[[.x]], pool_eco$Ecoregion)) / sd(pool_eco[[.x]]))
+  ) %>%
+  mutate(across(where(is.numeric), ~ round(.x, 2))) %>% print()
 
 # Figure ----
 
-p_pool <- Farm_species_pool %>%
-  select(Id_gcs, Ecoregion, pool_all_50k, pool_elevband_50k) %>%
-  pivot_longer(c(pool_all_50k, pool_elevband_50k), names_to = "metric", values_to = "pool") %>%
-  mutate(metric = recode(metric, pool_all_50k = "All species (50 km)",
-                         pool_elevband_50k = "Elevation-band matched (50 km)")) %>%
+p_pool <- pool_eco %>%
+  select(Id_gcs, Ecoregion, pool_point, pool_25km) %>%
+  pivot_longer(c(pool_point, pool_25km), names_to = "metric", values_to = "pool") %>%
+  mutate(metric = recode(metric, pool_point = "Farm point (primary)", pool_25km = "25 km buffer")) %>%
   ggplot(aes(fct_reorder(Ecoregion, pool), pool)) +
   geom_boxplot(outlier.shape = NA, fill = "grey90") +
   geom_jitter(width = 0.15, size = 1.4, alpha = 0.7) +
   facet_wrap(~metric, scales = "free_y") +
-  labs(x = NULL, y = "Regional species pool (# species)",
+  labs(x = NULL, y = "Potential species pool (# species)",
        title = "Range-map species pool by ecoregion",
-       subtitle = "50 km buffer around each farm; elevation-band = species whose elevational range overlaps farm elevation +/- 300 m") +
+       subtitle = "Species whose Ayerbe range includes the farm and whose elevational range (Suarez-Castro 2024) overlaps farm elevation +/- 250 m") +
   theme_minimal(11) +
   theme(axis.text.x = element_text(angle = 20, hjust = 1))
 ggsave("Figures/Species_pool_by_ecoregion.png", p_pool, width = 10, height = 4.5, bg = "white")
