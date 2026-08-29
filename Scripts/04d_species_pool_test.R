@@ -11,6 +11,8 @@
 
 ### Reads Scripts/04_farm_mgmt_mod.R's persisted frame + Data/Farm_species_pool.csv. Primary analysis (< 300 m). Outputs Derived/Excels/Species_pool_model_test.csv.
 
+### OUTCOME (2026-08-28): pool does not change the focal coefficients -- NOT added to 04. Variance partition: pool ~ poly(Elev,2) 0.41, ~ poly(precip,2) 0.57, both 0.86 (unique elev 0.29 / precip 0.45). Focal (pasture/water): clim ~+0.08, pool ~+0.10, pool_elev ~+0.10, pool_precip ~+0.05. The follow-up in Derived/Excels/Precip_vs_elev_sensitivity.txt (spline / drop-elevation variants) pins it down: pasture/water are ~+0.08 whenever elevation is in and precipitation only weakly controlled, ~+0.03-0.05 (CrI includes 0) whenever precipitation dominates the environmental adjustment. So the "signal" is residual precipitation confounding (Pasture_mgmt_div ~ precip r = 0.30); the near-zero `ecoregion`-spec estimate is the trustworthy one.
+
 # Setup ----
 library(tidyverse)
 library(brms)
