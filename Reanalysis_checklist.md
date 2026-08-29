@@ -55,14 +55,16 @@ and `Project_notes.md` (local only, chronological).
       when precipitation is weakly controlled and ~+0.04 (CrI includes 0) when
       it is the dominant environmental control. Re-check; consider making
       `s(prec)` the primary climate term.
-- [ ] **Drop `(1 | CollectorXyear)`** — `04e_spec_checks.R` (full 5-ecoregion) +
-      `04c` (Piedemonte). CollectorXyear is partly (V ≈ 0.38) but not fully
-      confounded with Ecoregion — the 3 largest datasets span 4-5 regions.
-      Confirm dropping it does not move the focal coefficients.
-- [ ] **`resp_se` vs point estimates** — `04e_spec_checks.R`. Confirm the
-      coefficients and CrIs are essentially unchanged (measurement error in the
-      response does not bias slopes; `resp_se` mainly down-weights the noisy
-      low-coverage assemblages and is the honest choice).
+- [x] **Drop `(1 | CollectorXyear)`** — `04e_spec_checks.R` (full 5-ecoregion) +
+      `04c` (Piedemonte). RE sd 0.18-0.31 (real batch structure) but dropping it
+      shifts the focal coefficients by ≤ 0.02 — it is *not* acting like
+      `(1 | Ecoregion)` (Cramér's V with Ecoregion only 0.38; the 3 biggest
+      datasets span 4-5 regions). Keep it. Re-check with new data.
+- [x] **`resp_se` vs point estimates** — `04e_spec_checks.R`. Dropping it gives
+      ~25 % *larger* |focal| and ~7 % wider CrIs — `resp_se` is a precision
+      weight that trusts the well-sampled assemblages (which show a weaker
+      management signal). It is the honest *and* conservative choice; without it
+      pasture/water richness CrIs would barely exclude zero. Keep it.
 - [ ] **Species pool** (`01b` + `04d_species_pool_test.R`) — `spp_pool` is
       ~89 % explained by elevation + precipitation and adds nothing to the
       management coefficients. Re-check only if the farm set shifts substantially.
@@ -81,9 +83,11 @@ and `Project_notes.md` (local only, chronological).
 
 - [ ] **`s(precip)` as the primary climate term** so `climate` and `ecoregion`
       converge (the DAG-consistent precipitation adjustment).
-- [ ] **`dist_predio_cercano`** (farm isolation, from the MJE xls) as a covariate
-      — *uncorrelated* with `Distancia_farm` (r ≈ 0), so genuinely new. Test as
-      a predictor and/or a spatial-autocorrelation control.
+- [ ] **`dist_predio_cercano`** (distance to nearest neighbouring property, from
+      the MJE xls; range 0-36 km, median ~1.4 km) as a covariate — a farm
+      *isolation* measure, **uncorrelated with `Distancia_farm`** (r ≈ 0;
+      `Distancia_farm` is instead a data-quality flag for off-farm surveys).
+      Test as a predictor and/or a spatial-autocorrelation control.
 - [ ] **Index-level Mundlak / within-between decomposition** — ecoregion mean +
       farm deviation per index; the within coefficient is the confound-free
       estimate. `06b` already has the canopy analogue (`within_eco`).

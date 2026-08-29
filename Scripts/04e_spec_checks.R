@@ -5,6 +5,10 @@
 
 ### Refits the climate and ecoregion primary models (< 300 m) for each index x {richness, shannon} under three variants: base / no CollectorXyear RE / no resp_se. Reads Scripts/04_farm_mgmt_mod.R's persisted frame. Outputs Derived/Excels/Spec_checks.csv.
 
+### OUTCOME (2026-08-29):
+### (a) CollectorXyear RE sd is 0.18-0.31 (log scale) -- real batch/protocol structure, not negligible. But dropping the RE shifts the focal coefficients by <= 0.022 (mostly <= 0.01): pasture climate +0.080 -> +0.077, water climate +0.074 -> +0.080. So it is NOT acting like (1|Ecoregion) -- if it were absorbing region confounding, dropping it from the climate spec would inflate pasture/water, and it doesn't. It captures field-protocol differences among the 6 datasets, as intended. Keep it. (Also tested in Piedemonte, 04c -- same, <= 0.01.)
+### (b) Dropping resp_se gives LARGER |focal| (mean 0.050 vs 0.040, ~25% bigger; pasture richness +0.080 -> +0.106) and WIDER CrIs (mean 0.174 vs 0.162). resp_se turns the fit into a precision-weighted regression -- the well-sampled (low-SE) assemblages get more influence, and they show a weaker management association than the noisy ones. So resp_se pulls the coefficients down and tightens them by extracting a cleaner signal from the precise points. It is both the honest choice (the iNEXT SEs are real) and the conservative one -- without it, pasture/water richness CrIs would just barely exclude zero.
+
 # Setup ----
 library(tidyverse)
 library(brms)
