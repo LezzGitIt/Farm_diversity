@@ -148,10 +148,10 @@ Model_data <- Model_data %>%
   mutate(across(all_of(predictors_to_scale), ~ as.numeric(scale(.x)), .names = "{.col}_z")) %>%
   rename(Num_hab_z = Num_hab_num_z)
 
-## Persist the frame so Scripts/05_farm_mgmt_plots.R can map standardized axes to raw units
+## Persist the frame so Scripts/05_farm_mgmt_plots.R can map standardized axes to raw units, and Scripts/04c_farm_mgmt_piedemonte.R can reuse it (dist_farm is carried for the < 300 m cutoff)
 Model_data %>%
   select(Assemblage, Id_gcs, Uniq_db, Ano_grp, Season, CollectorXyear, Hill, Ecoregion,
-         response, response_se, log_response, se_log, Num_pc, doy,
+         response, response_se, log_response, se_log, Num_pc, doy, doy_sin, doy_cos, dist_farm,
          all_of(predictors_to_scale), ends_with("_z")) %>%
   write_csv("Derived/Excels/Farm_mgmt_model_data.csv")
 
