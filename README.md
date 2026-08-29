@@ -101,9 +101,13 @@ outputs are picked up by consumers via `latest_file()`.
   (`Ecoregion_variance_explained.csv`, `Figures/`).
 - **`04_farm_mgmt_mod.R`** — the analysis. Bayesian measurement-error models
   (`brms`, `resp_se()`) of assemblage log diversity (richness q = 0, Shannon q = 1,
-  Simpson q = 2) on each diversification index, with a no-index baseline per
-  spec, `bayes_R2`, cyclic day-of-year, and two region adjustments (Ecoregion
-  fixed; or precipitation + elevation) plus a `Num.hab` sensitivity spec. →
+  Simpson q = 2) on each diversification index, with a no-index baseline and
+  `bayes_R2`. Two region-adjustment versions (see `dag.R`): **climate + canopy**
+  (elevation + precipitation as x + x², plus 10 km canopy — the DAG-sufficient
+  primary) and **Ecoregion + canopy** (proxy robustness check). Sampling
+  controls: `log(Num_pc)`, `Num.hab` (habitat types surveyed), cyclic
+  day-of-year, `(1|Id_gcs)`, `(1|CollectorXyear)`. Primary analysis =
+  assemblages < 300 m from the farm; the full set is a sensitivity run. →
   `Derived/Excels/Farm_mgmt_model_{data,summaries}.csv`, `Derived/models/mod_*`.
 - **`05_farm_mgmt_plots.R`** — figures from the step-`04` fits
   (`Figures/Linking_*.png`); plot objects named for reuse in the reports / manuscript.
@@ -138,11 +142,12 @@ coefficient.
 biodiversity estimate. The whole pipeline (estimation → analysis) now runs in
 numbered `.R` scripts.
 
-**Management diversification (`04_farm_mgmt_mod.R`):** with `Ecoregion` adjusted
-for, no diversification index shows a robust association with bird diversity; the
-weak water/pasture-management signal under climate-only adjustment is residual
-confounding with ecoregion. Land-use and "all practices" are the indices least
-confounded with ecoregion (`03_exploratory.R`).
+**Management diversification (`04_farm_mgmt_mod.R`):** no robust association. In
+the primary (climate + canopy) version, pasture and water management are weakly
+positive for richness/Shannon (90% CrI excludes zero), but none of those survive
+the Ecoregion robustness version — and those two indices are the ones most
+confounded with region, so it reads as residual regional confounding. Land use
+and "all practices" (the region-separable indices) are ~0 under both.
 
 **Canopy scale of effect (`06b_scale_of_effect.R`):** once elevation +
 precipitation are controlled for, bird richness is positively associated with
@@ -158,7 +163,6 @@ check (the 5-level factor proxying climate, ~80 % R²). Habitat count is a
 must be adjusted (not just added for precision) because it blocks an unobserved
 farmer-values backdoor.
 
-Still to do: apply the DAG (climate spec primary, drop the num-hab sensitivity
-spec, add canopy to the ecoregion spec) + the 300 m cutoff + quadratic
-elevation/precipitation; a Piedemonte-only cut; LOO for the nuisance terms
-(deferred). See `Project_notes.md` (local only) for full session notes.
+Still to do: a species-pool proxy (eBird regional richness) for the climate
+version; a Piedemonte-only cut; LOO for the nuisance terms (deferred). See
+`Project_notes.md` (local only) for full session notes.

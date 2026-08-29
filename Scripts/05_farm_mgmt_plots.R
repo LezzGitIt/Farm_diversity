@@ -19,12 +19,9 @@ index_labels <- c(
 )
 index_order <- unname(index_labels)
 
-spec_labels <- c(
-  ecoregion = "Ecoregion (fixed)", climate = "Precip + elevation",
-  ecoregion_numhab = "Ecoregion + Num.hab (sensitivity)"
-)
-spec_colours <- c("Ecoregion (fixed)" = "#1b7837", "Precip + elevation" = "#762a83",
-                  "Ecoregion + Num.hab (sensitivity)" = "#d95f02")
+## climate = the DAG-sufficient primary; ecoregion = the proxy robustness check (Scripts/dag.R)
+spec_labels <- c(climate = "Climate + canopy", ecoregion = "Ecoregion + canopy")
+spec_colours <- c("Climate + canopy" = "#762a83", "Ecoregion + canopy" = "#1b7837")
 
 hill_labels <- c(richness = "Richness (q = 0)", shannon = "Shannon (q = 1)", simpson = "Simpson (q = 2)")
 hill_order <- unname(hill_labels)
@@ -34,16 +31,16 @@ identifiable_indices <- c("Land_use_div", "All_practices_div")
 # Load 04 outputs ----
 
 Model_summaries <- read_csv("Derived/Excels/Farm_mgmt_model_summaries.csv", show_col_types = FALSE) %>%
-  ## tolerate a pre-distance-sensitivity summaries file (no data_subset column)
-  { if ("data_subset" %in% names(.)) . else mutate(., data_subset = "all") } %>%
+  ## tolerate a summaries file written before the primary/full split
+  { if ("data_subset" %in% names(.)) . else mutate(., data_subset = "primary") } %>%
   mutate(
     Hill = factor(recode(hill, !!!hill_labels), levels = hill_order),
     Index = factor(recode(index, !!!index_labels), levels = index_order),
     Spec = recode(spec, !!!spec_labels)
   )
 
-## the primary figures use the full dataset; the on_farm subset feeds the distance-sensitivity figure only
-Full <- Model_summaries %>% filter(data_subset == "all")
+## the primary figures use the < 300 m analysis set; the full set feeds the sensitivity figure only
+Primary <- Model_summaries %>% filter(data_subset == "primary")
 
 Model_data <- read_csv("Derived/Excels/Farm_mgmt_model_data.csv", show_col_types = FALSE)
 
@@ -55,20 +52,20 @@ mod_fits <- set_names(map(mod_fit_files, readRDS), str_remove(basename(mod_fit_f
 have_fits <- length(mod_fits) > 0
 if (!have_fits) message("05: no fitted models in Derived/models/ -- skipping pp-check and conditional-effect figures.")
 
-# Figure 1: management-diversification coefficient across specs ----
+# Figure 1: management-diversification coefficient, primary vs robustness ----
 
-p_index_effects <- Full %>%
-  filter(term == "focal_z", spec %in% c("ecoregion", "climate")) %>%
+p_index_effects <- Primary %>%
+  filter(term == "focal_z") %>%
   ggplot(aes(estimate, fct_rev(Index), colour = Spec)) +
   geom_vline(xintercept = 0, linetype = "dashed", colour = "grey60") +
   geom_pointrange(aes(xmin = conf_low, xmax = conf_high),
                   position = position_dodge(width = 0.5), fatten = 2.5) +
   facet_wrap(~Hill) +
-  scale_colour_manual(values = spec_colours, name = "Region adjustment") +
+  scale_colour_manual(values = spec_colours, name = NULL) +
   labs(
     x = "Standardized effect on log diversity (posterior median, 90% CrI)", y = NULL,
     title = "Farm management diversification vs bird diversity",
-    subtitle = "Effect of a 1-SD increase in each index, adjusting for region + sampling + season"
+    subtitle = "1-SD increase in each index; assemblages < 300 m from the farm. Climate + canopy = primary, Ecoregion + canopy = robustness"
   ) +
   theme(legend.position = "bottom")
 ggsave("Figures/Farm_mgmt_index_effects.png", p_index_effects, bg = "white", width = 10, height = 4)
@@ -76,14 +73,12 @@ print(p_index_effects)
 
 # Figure 2: variance explained -- baseline vs + each index ----
 
-## bayes_R2 of the no-index baseline (region + sampling + season) and of each index model, so the variance an index adds is visible.
-p_bayes_r2 <- Full %>%
+p_bayes_r2 <- Primary %>%
   distinct(Hill, Index, Spec, spec, bayes_R2) %>%
-  filter(spec %in% c("ecoregion", "climate")) %>%
   ggplot(aes(bayes_R2, fct_rev(Index), colour = Spec)) +
   geom_point(size = 2.5, position = position_dodge(width = 0.4)) +
   facet_wrap(~Hill) +
-  scale_colour_manual(values = spec_colours, name = "Region adjustment") +
+  scale_colour_manual(values = spec_colours, name = NULL) +
   labs(
     x = "Bayesian R²", y = NULL,
     title = "Variance explained: baseline vs adding each diversification index",
@@ -93,23 +88,23 @@ p_bayes_r2 <- Full %>%
 ggsave("Figures/Farm_mgmt_bayes_r2.png", p_bayes_r2, bg = "white", width = 10, height = 4)
 print(p_bayes_r2)
 
-# Figure 3a: distance-to-farm sensitivity ----
+# Figure 3a: full-data sensitivity ----
 
-## focal index coefficient on the full data vs on the on-farm-only subset (point counts averaging < 500 m from the farm)
-subset_labels <- c(all = "All assemblages", on_farm = "On-farm only (< 500 m)")
+## focal index coefficient on the primary (< 300 m) set vs the full set
+subset_labels <- c(primary = "Primary (< 300 m)", full = "All assemblages")
 p_dist_sensitivity <- Model_summaries %>%
-  filter(term == "focal_z", spec %in% c("ecoregion", "climate"), index != "baseline") %>%
+  filter(term == "focal_z", index != "baseline") %>%
   mutate(Subset = recode(data_subset, !!!subset_labels)) %>%
   ggplot(aes(estimate, fct_rev(Index), colour = Subset, shape = Subset)) +
   geom_vline(xintercept = 0, linetype = "dashed", colour = "grey60") +
   geom_pointrange(aes(xmin = conf_low, xmax = conf_high),
                   position = position_dodge(width = 0.6), fatten = 2) +
   facet_grid(Spec ~ Hill) +
-  scale_colour_manual(values = c("All assemblages" = "grey30", "On-farm only (< 500 m)" = "#d95f02"), name = NULL) +
-  scale_shape_manual(values = c(16, 17), name = NULL) +
+  scale_colour_manual(values = c("Primary (< 300 m)" = "#d95f02", "All assemblages" = "grey30"), name = NULL) +
+  scale_shape_manual(values = c(17, 16), name = NULL) +
   labs(x = "Standardized effect on log diversity (median, 90% CrI)", y = NULL,
        title = "Distance-to-farm sensitivity",
-       subtitle = "Index coefficient: full data vs assemblages whose point counts average < 500 m from the farm") +
+       subtitle = "Index coefficient: primary (point counts average < 300 m from the farm) vs all assemblages") +
   theme(legend.position = "bottom")
 ggsave("Figures/Farm_mgmt_dist_sensitivity.png", p_dist_sensitivity, bg = "white", width = 10, height = 6)
 print(p_dist_sensitivity)
@@ -118,9 +113,9 @@ print(p_dist_sensitivity)
 
 if (have_fits) {
 
-ppcheck_keys <- names(mod_fits) %>% keep(~ str_detect(.x, "__All_practices_div__(ecoregion|climate)__all$"))
+ppcheck_keys <- names(mod_fits) %>% keep(~ str_detect(.x, "__All_practices_div__(ecoregion|climate)__primary$"))
 ppcheck_panels <- map(ppcheck_keys, function(key) {
-  parts <- str_match(key, "^mod_(richness|shannon|simpson)__.+__(ecoregion|climate)__all$")
+  parts <- str_match(key, "^mod_(richness|shannon|simpson)__.+__(ecoregion|climate)__primary$")
   suppressWarnings(pp_check(mod_fits[[key]], ndraws = 100)) +
     labs(subtitle = paste0(hill_labels[[parts[2]]], " -- ", spec_labels[[parts[3]]])) +
     theme(legend.position = "none")
@@ -143,7 +138,7 @@ index_scaling <- Model_data %>%
   pivot_wider(names_from = stat, values_from = value)
 
 conditional_index_effect <- function(key) {
-  parts <- str_match(key, "^mod_(richness|shannon|simpson)__(.+)__(ecoregion|climate)__all$")
+  parts <- str_match(key, "^mod_(richness|shannon|simpson)__(.+)__(ecoregion|climate)__primary$")
   index <- parts[3]
   sc <- index_scaling %>% filter(index == !!index)
   as_tibble(conditional_effects(mod_fits[[key]], effects = "focal_z")[["focal_z"]]) %>%
@@ -157,7 +152,7 @@ conditional_index_effect <- function(key) {
 }
 
 identifiable_keys <- names(mod_fits) %>%
-  keep(~ str_detect(.x, paste0("__(", paste(identifiable_indices, collapse = "|"), ")__(ecoregion|climate)__all$")))
+  keep(~ str_detect(.x, paste0("__(", paste(identifiable_indices, collapse = "|"), ")__(ecoregion|climate)__primary$")))
 Conditional_lines <- map(identifiable_keys, conditional_index_effect) %>% list_rbind()
 
 Raw_points <- Model_data %>%
@@ -172,7 +167,7 @@ p_index_conditional <- ggplot(Conditional_lines, aes(index_value, diversity)) +
   geom_ribbon(aes(ymin = lower, ymax = upper, fill = Spec), alpha = 0.2) +
   geom_line(aes(colour = Spec), linewidth = 1) +
   facet_grid(Hill ~ Index, scales = "free_y") +
-  scale_colour_manual(values = spec_colours, name = "Region adjustment", aesthetics = c("colour", "fill")) +
+  scale_colour_manual(values = spec_colours, name = NULL, aesthetics = c("colour", "fill")) +
   labs(
     x = "Diversification index [0-1]", y = "Hill-number diversity",
     title = "Predicted bird diversity across the identifiable diversification indices",

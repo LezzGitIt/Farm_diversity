@@ -4,10 +4,10 @@
 
 ### For every (response x region-adjustment) a **no-index baseline** is fitted alongside the four index models, so the variance the indices add can be read against the variance region + sampling already explain (`bayes_R2`).
 
-### Region adjustment, two ways per fit:
-###   * "ecoregion" -- Ecoregion as a 5-level fixed effect (conservative; absorbs all between-region variation).
-###   * "climate"   -- farm mean precipitation + elevation instead of the label (mechanistic; leaves more between-region variation for management, at the risk of residual confounding).
-### A third "ecoregion_numhab" spec adds the number of habitat types sampled -- a SENSITIVITY check only: Num.hab is partly a mediator of the land-use index (a more land-use-diversified farm has its points across more habitats), so it is not in the primary models.
+### Region adjustment, two model versions per fit (see Scripts/dag.R for the causal rationale):
+###   * "climate" -- PRIMARY. The DAG-sufficient set: farm elevation + precipitation (each as x + x^2) + surrounding 10 km canopy cover. Adjusts the mechanisms Ecoregion stands for without the 5-level factor soaking up management variation.
+###   * "ecoregion" -- ROBUSTNESS. Ecoregion as a 5-level fixed effect + canopy. The factor is a coarse proxy for climate (R^2 ~ 0.8) and the only handle on the regional species pool the climate version misses; it also over-adjusts on any region-correlated management variation, so it brackets rather than replaces the primary.
+### Both versions carry the sampling covariates below, including Num.hab (number of habitat types surveyed -- a sampling-scope control: 2013 & 2016/17 surveys were forest-only, 2019+ spanned the land-use gradient).
 
 ### Responses (all log-transformed, modelled with `resp_se(se, sigma = TRUE)`):
 ###   * richness  -- q = 0 non-asymptotic `No_Asy_TD` at Cmax + its coverage-based SE (from the coverage65 export)
@@ -16,8 +16,10 @@
 ### q = 1 / q = 2 use the asymptotic estimate because those profiles asymptote; q = 0 does not, so it uses the coverage-standardised estimate.
 
 ### Model per fit:
-###   log(response) | resp_se(se_log, sigma = TRUE) ~ [index_z +] <region adjustment> + log(Num_pc)_z + doy_sin + doy_cos + (1 | Id_gcs) + (1 | CollectorXyear)
-### `Id_gcs` is nested in Ecoregion automatically. `CollectorXyear` is a batch effect for the [dataset x year-group] cohorts (different field protocols). `doy_sin` / `doy_cos` are a cyclic term on the assemblage's mean day of year -- a control for the Nearctic migrant influx (Oct-Mar). Fixed `Year` is omitted (near-collinear with data collector).
+###   log(response) | resp_se(se_log, sigma = TRUE) ~ [index_z +] <region adjustment> + Num_pc_log_z + Num_hab_z + doy_sin + doy_cos + (1 | Id_gcs) + (1 | CollectorXyear)
+### `Id_gcs` is nested in Ecoregion automatically. `CollectorXyear` is the [dataset x year-group] batch (field protocol + which farms + which habitats surveyed). `doy_sin` / `doy_cos` are a cyclic term on the assemblage's mean day of year -- a control for the Nearctic migrant influx (Oct-Mar). Fixed `Year` is omitted (folded into CollectorXyear).
+
+### PRIMARY analysis = assemblages whose point counts average < 300 m from the farm (`dist_threshold`); the full set is refit as a sensitivity for the index models. See Scripts/dag.R and Project_notes.md for the distance-cutoff decision.
 
 # Setup ----
 library(tidyverse)
@@ -39,19 +41,20 @@ set.seed(1989)
 chains <- 4
 iter <- 3000
 warmup <- 1000
-adapt_delta <- 0.97
+## 0.99 (not 0.97): the small-n ecoregion fits (5-level factor + canopy + sampling + 2 REs on ~75 rows) threw tens of divergences at 0.97
+adapt_delta <- 0.99
 
 div_indices <- c("Land_use_div", "Water_mgmt_div", "Pasture_mgmt_div", "All_practices_div")
 
-## Region-adjustment specs: the non-focal fixed effects and whether this is a sensitivity spec.
-## The "climate" spec also carries canopy cover in the surrounding 10 km landscape -- the scale
-## that best explains diversity in Scripts/06b_scale_of_effect.R, and another mechanism Ecoregion
-## proxies for. Only moderately correlated with elevation (r ~ 0.44), so it sits alongside it fine.
+## Region-adjustment model versions (Scripts/dag.R). Both carry `canopy_10k_z` -- the
+## 10 km scale that best explains diversity (Scripts/06b_scale_of_effect.R) and, per the
+## DAG, a confounder to adjust (it blocks the unobserved farmer-values -> landscape-forest
+## backdoor), not just a precision term. `climate` is the DAG-sufficient primary; `ecoregion`
+## is the proxy robustness check.
 specs <- tribble(
-  ~spec,               ~region_fixed,                                       ~extra_fixed,   ~sensitivity,
-  "ecoregion",         "Ecoregion",                                         "",             FALSE,
-  "climate",           "Tot_prec_mean_z + Elev_mean_z + canopy_10k_z",      "",             FALSE,
-  "ecoregion_numhab",  "Ecoregion",                                         "Num_hab_z",    TRUE
+  ~spec,        ~region_fixed,                                                                              ~role,
+  "climate",    "Elev_mean_z + I(Elev_mean_z^2) + Tot_prec_mean_z + I(Tot_prec_mean_z^2) + canopy_10k_z",    "primary",
+  "ecoregion",  "Ecoregion + canopy_10k_z",                                                                  "robustness"
 )
 
 # Load data ----
@@ -93,9 +96,11 @@ Td_rich <- cov65 %>%
 Tax_div_long <- bind_rows(Td_rich, Td_asy)
 responses <- sort(unique(Tax_div_long$Hill))
 
-## Assemblage sampling covariates from the point-count events: number of distinct point counts, mean day of year (migrant-season proxy), and mean distance of the point counts from the farm (Distancia_farm; used for the on-farm sensitivity subset)
+## Assemblage sampling covariates from the point-count events: number of distinct point counts, mean day of year (migrant-season proxy), and mean distance of the point counts from the farm (Distancia_farm)
 wrangling_excels <- "../Ssp-bird-data-wrangling/Derived/Excels/"
-dist_threshold <- 500
+
+## PRIMARY analysis keeps assemblages whose point counts average < 300 m from the farm; the full set is a sensitivity run. (Aaron's choice: drops the clearly-displaced survey groups, keeps GPS jitter; the coefficients barely move -- see Project_notes.md.)
+dist_threshold <- 300
 
 Assemblage_covs <- read_csv(paste0(wrangling_excels, "Site_covs.csv"), show_col_types = FALSE) %>%
   select(Id_muestreo_no_dc, Id_gcs, Distancia_farm) %>%
@@ -107,7 +112,7 @@ Assemblage_covs <- read_csv(paste0(wrangling_excels, "Site_covs.csv"), show_col_
             doy = mean(Julian_day, na.rm = TRUE),
             dist_farm = mean(Distancia_farm, na.rm = TRUE), .by = Assemblage)
 
-## Canopy cover in the surrounding 10 km (Scripts/06a_Extract_cc_buff.R) -- the landscape scale that best explains diversity; used only in the "climate" (no-Ecoregion) spec
+## Canopy cover in the surrounding 10 km (Scripts/06a_Extract_cc_buff.R) -- the landscape scale that best explains diversity; in both model versions (a confounder per the DAG, not just precision)
 Canopy_10k <- read_csv("Data/Geospatial/Canopy_by_scale_assemblage.csv", show_col_types = FALSE) %>%
   filter(radius_m == 10000) %>%
   transmute(Assemblage, canopy_10k = canopy_cover)
@@ -161,21 +166,20 @@ mod_priors <- c(
 
 # Model formula + data frame for one fit ----
 
-## The focal index is carried in a generic column `focal_z`; index == "baseline" drops it. Formulas with identical structure share a compiled Stan model.
-formula_for <- function(index, region_fixed, extra_fixed) {
+## The focal index is carried in a generic column `focal_z`; index == "baseline" drops it. Num.hab is a standing sampling control in every model. Formulas with identical structure share a compiled Stan model.
+formula_for <- function(index, region_fixed) {
   terms <- c(if (index != "baseline") "focal_z",
              region_fixed,
-             if (nzchar(extra_fixed)) extra_fixed,
-             "Num_pc_log_z", "doy_sin", "doy_cos",
+             "Num_pc_log_z", "Num_hab_z", "doy_sin", "doy_cos",
              "(1 | Id_gcs)", "(1 | CollectorXyear)")
   bf(as.formula(paste0("log_response | resp_se(se_log, sigma = TRUE) ~ ",
                        paste(terms, collapse = " + "))))
 }
 
-frame_for <- function(hill, index, region_fixed, extra_fixed, data_subset) {
+frame_for <- function(hill, index, region_fixed, data_subset) {
   df <- Model_data %>%
-    filter(Hill == hill, !is.na(se_log), !is.na(Num_pc_log_z), !is.na(doy_sin))
-  if (data_subset == "on_farm") df <- df %>% filter(!is.na(dist_farm), dist_farm < dist_threshold)
+    filter(Hill == hill, !is.na(se_log), !is.na(Num_pc_log_z), !is.na(Num_hab_z), !is.na(doy_sin))
+  if (data_subset == "primary") df <- df %>% filter(!is.na(dist_farm), dist_farm < dist_threshold)
   if (index != "baseline") {
     df <- df %>% mutate(focal_z = .data[[paste0(index, "_z")]]) %>% filter(!is.na(focal_z))
   }
@@ -183,33 +187,31 @@ frame_for <- function(hill, index, region_fixed, extra_fixed, data_subset) {
     df <- df %>% filter(!is.na(Tot_prec_mean_z), !is.na(Elev_mean_z))
   }
   if (str_detect(region_fixed, "canopy_10k")) df <- df %>% filter(!is.na(canopy_10k_z))
-  if (nzchar(extra_fixed)) df <- df %>% filter(!is.na(Num_hab_z))
   df
 }
 
 # Fit the grid ----
 
-## data_subset: "all" always; "on_farm" (assemblages whose point counts average < dist_threshold m from the farm) as a sensitivity check, for the primary specs' index models only
+## data_subset: "primary" (point counts average < dist_threshold m from the farm) is the analysis; "full" (all assemblages) is a sensitivity run, index models only.
 fit_grid <- expand_grid(
   hill = responses,
   index = c("baseline", div_indices),
   specs,
-  data_subset = c("all", "on_farm")
+  data_subset = c("primary", "full")
 ) %>%
-  filter(!(sensitivity & index == "baseline"),                 # sensitivity spec: no baseline
-         !(data_subset == "on_farm" & (sensitivity | index == "baseline"))) %>%  # on_farm: index models, primary specs
+  filter(!(data_subset == "full" & index == "baseline")) %>%   # full-data sensitivity: index models only
   arrange(data_subset, spec, hill, index) %>%
   mutate(key = paste(hill, index, spec, data_subset, sep = "__"),
          structure = paste(spec, if_else(index == "baseline", "baseline", "index"), sep = "__"))
 
-fit_one <- function(hill, index, spec, region_fixed, extra_fixed, sensitivity, data_subset, key, structure, base_fit) {
+fit_one <- function(hill, index, spec, region_fixed, role, data_subset, key, structure, base_fit) {
   file <- sprintf("Derived/models/mod_%s", key)
-  frame <- frame_for(hill, index, region_fixed, extra_fixed, data_subset)
+  frame <- frame_for(hill, index, region_fixed, data_subset)
   common <- list(chains = chains, iter = iter, warmup = warmup, seed = 1989,
                  control = list(adapt_delta = adapt_delta), refresh = 0, silent = 2,
                  file = file, file_refit = "on_change")
   if (is.null(base_fit)) {
-    do.call(brm, c(list(formula = formula_for(index, region_fixed, extra_fixed),
+    do.call(brm, c(list(formula = formula_for(index, region_fixed),
                         data = frame, prior = mod_priors), common))
   } else {
     do.call(update, c(list(object = base_fit, newdata = frame, recompile = FALSE), common))
@@ -224,8 +226,8 @@ for (i in seq_len(nrow(fit_grid))) {
   row <- as.list(fit_grid[i, ])
   message(sprintf("[%d/%d] %s", i, nrow(fit_grid), row$key))
   base <- base_by_structure[[row$structure]]
-  fit <- fit_one(row$hill, row$index, row$spec, row$region_fixed, row$extra_fixed,
-                 row$sensitivity, row$data_subset, row$key, row$structure, base_fit = base)
+  fit <- fit_one(row$hill, row$index, row$spec, row$region_fixed,
+                 row$role, row$data_subset, row$key, row$structure, base_fit = base)
   if (is.null(base)) base_by_structure[[row$structure]] <- fit
   mod_fits[[row$key]] <- fit
 }
@@ -262,23 +264,23 @@ if (!q0_has_se) message("NOTE: q = 0 fitted without measurement error (placehold
 
 # Report ----
 
-cat("\nBayesian R-squared: baseline (region + sampling only) vs + each index (full data)\n")
+cat("\nBayesian R-squared: baseline (region + sampling only) vs + each index (primary analysis, dist < ", dist_threshold, " m)\n", sep = "")
 Model_summaries %>%
-  filter(data_subset == "all", !str_detect(spec, "numhab")) %>%
+  filter(data_subset == "primary") %>%
   distinct(hill, index, spec, n_obs, bayes_R2) %>%
   pivot_wider(names_from = index, values_from = bayes_R2) %>%
   print(n = Inf)
 
-cat("\nManagement-diversification coefficient (focal_z), full data\n")
+cat("\nManagement-diversification coefficient (focal_z), primary analysis\n")
 Model_summaries %>%
-  filter(term == "focal_z", data_subset == "all") %>%
+  filter(term == "focal_z", data_subset == "primary") %>%
   select(hill, index, spec, estimate, conf_low, conf_high, p_direction_pos, n_obs) %>%
   arrange(spec, hill, index) %>%
   print(n = Inf)
 
-cat("\nDistance-to-farm sensitivity: focal_z, full vs on-farm-only (dist < ", dist_threshold, " m)\n", sep = "")
+cat("\nFull-data sensitivity: focal_z, primary (dist < ", dist_threshold, " m) vs full set\n", sep = "")
 Model_summaries %>%
-  filter(term == "focal_z", spec %in% c("ecoregion", "climate")) %>%
+  filter(term == "focal_z") %>%
   select(hill, index, spec, data_subset, estimate, conf_low, conf_high, n_obs) %>%
   pivot_wider(names_from = data_subset, values_from = c(estimate, conf_low, conf_high, n_obs)) %>%
   print(n = Inf)
