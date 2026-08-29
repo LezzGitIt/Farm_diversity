@@ -8,6 +8,8 @@
 
 ### `pool_point` (no buffer) is the primary metric. Frozen covariate -> Data/Farm_species_pool.csv, treated as raw input like Data/Farm_covariates.csv. The combined Ayerbe range layer is cached in Data/Geospatial/Ayerbe_ranges.gpkg (the 1,890 shapefile reads are slow on a cold OneDrive).
 
+### OUTCOME (2026-08-28): `pool_point ~ poly(Elev,2) + poly(precip,2)` R^2 = 0.89 -- the pool is ~redundant with the climate terms already in 04. The decisive test (add pool_point_z to the climate models; Derived/Excels/Species_pool_decisive_test.csv) confirmed it: the pasture/water coefficients move by <= 0.006 and pool_point_z is null with a huge CrI. So this covariate is NOT added to 04 -- it's kept for the record. The ecoregion<->climate difference is compositional biogeography or Ecoregion over-adjustment, not a missing richness axis; an endemism-weighted or eBird measure would be the next thing to try.
+
 # Setup ----
 library(tidyverse)
 library(sf)
