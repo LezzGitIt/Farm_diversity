@@ -4,11 +4,11 @@
 
 ### Two-step filter per farm:
 ###   1. GEOSPATIAL -- the species' Ayerbe Colombian range polygon contains the farm (point-in-polygon).
-###   2. ELEVATIONAL -- the farm's elevation falls within the species' elevational range +/- `elev_margin_m`. Elevational limits are layered by source priority: Suarez-Castro et al. (2024) AOH table S3 (1,652 spp), then the manual book digitisations from ../Ssp-bird-data-wrangling/Scripts/03_FT_elev.R -- Hazen's read-out of the Ayerbe-Quinones (2018) field guide, then Hazen's read-out of Hilty. Species still without a limit (~13%, mostly Nearctic migrants / seabirds) pass this step unfiltered.
+###   2. ELEVATIONAL -- the farm elevation falls within the species elevational range (no buffer). Elevational limits are layered by source priority: Suarez-Castro et al. (2024) AOH table S3 (1,652 spp), then the manual book digitisations from ../Ssp-bird-data-wrangling/Scripts/03_FT_elev.R -- Hazen's read-out of the Ayerbe-Quinones (2018) field guide, then Hazen's read-out of Hilty. Species still without a limit (~13%, mostly Nearctic migrants / seabirds) pass this step unfiltered.
 
 ### `pool_point` -> Data/Farm_species_pool.csv, treated as raw input like Data/Farm_covariates.csv. The combined Ayerbe range layer is cached in Data/Geospatial/Ayerbe_ranges.gpkg (the 1,890 shapefile reads are slow on a cold OneDrive).
 
-### OUTCOME (2026-08-28): `pool_point ~ poly(Elev,2) + poly(precip,2)` R^2 = 0.86 (unique: elev 0.29, precip 0.45, shared 0.12). Scripts/04d_species_pool_test.R tested it properly (blocks that never combine all three axes) and it does not change the management coefficients -> NOT added to 04, kept for the record. Along the way 04d + Derived/Excels/Precip_vs_elev_sensitivity.txt showed the pasture/water "signal" in the climate spec is residual PRECIPITATION confounding (Pasture_mgmt_div ~ precip r = 0.30), not a missing species-pool axis; see Project_notes.md.
+### OUTCOME (2026-08-29): `pool_point ~ poly(Elev,2) + poly(precip,2)` R^2 = 0.87 (unique: elev 0.29, precip 0.45, shared 0.12). Scripts/04d_species_pool_test.R tested it properly (blocks that never combine all three axes) and it does not change the management coefficients -> NOT added to 04, kept for the record. Along the way 04d + Derived/Excels/Precip_vs_elev_sensitivity.csv showed the pasture/water "signal" in the climate spec is residual PRECIPITATION confounding (Pasture_mgmt_div ~ precip r = 0.30), not a missing species-pool axis; see Project_notes.md.
 
 # Setup ----
 library(tidyverse)
@@ -22,8 +22,6 @@ dir.create("Figures", showWarnings = FALSE)
 ayerbe_dir   <- "../Geospatial_data/Ayerbe_shapefiles_1890spp"
 elev_dir     <- "/Users/aaronskinner/Library/CloudStorage/OneDrive-UBC/Academia/Datasets_external/Elev_ranges"
 ranges_cache <- "Data/Geospatial/Ayerbe_ranges.gpkg"
-
-elev_margin_m <- 250
 
 # Combined Ayerbe range layer (cached) ----
 
@@ -95,7 +93,7 @@ Farm_species_pool <- map_dfr(seq_len(nrow(farms)), function(i) {
   sp_geo <- unique(ranges$species[geo_hits[[i]]])
   fe <- fc$Elev_mean[i]
   lo <- elo[sp_geo]; hi <- ehi[sp_geo]
-  in_band <- is.na(lo) | (hi >= fe - elev_margin_m & lo <= fe + elev_margin_m)   # step 2 (NA elev -> keep)
+  in_band <- is.na(lo) | (hi >= fe & lo <= fe)   # step 2: farm elevation within [species_min, species_max]; NA elev -> keep
   tibble(Id_gcs = fc$Id_gcs[i], pool_geo_point = length(sp_geo), pool_point = sum(in_band))
 })
 
@@ -131,7 +129,7 @@ p_pool <- pool_eco %>%
   geom_jitter(width = 0.15, size = 1.6, alpha = 0.7) +
   labs(x = NULL, y = "Potential species pool (# species)",
        title = "Range-map species pool by ecoregion (farm point)",
-       subtitle = "Species whose Ayerbe range includes the farm and whose elevational range (Suarez-Castro 2024) overlaps farm elevation +/- 250 m") +
+       subtitle = "Species whose Ayerbe range includes the farm and whose elevational range (Suarez-Castro 2024 + guides) includes the farm elevation") +
   theme_minimal(11) +
   theme(axis.text.x = element_text(angle = 20, hjust = 1))
 ggsave("Figures/Species_pool_by_ecoregion.png", p_pool, width = 7, height = 4.5, bg = "white")
