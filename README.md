@@ -110,7 +110,12 @@ outputs are picked up by consumers via `latest_file()`.
   assemblages < 300 m from the farm; the full set is a sensitivity run. →
   `Derived/Excels/Farm_mgmt_model_{data,summaries}.csv`, `Derived/models/mod_*`.
 - **`05_farm_mgmt_plots.R`** — figures from the step-`04` fits
-  (`Figures/Linking_*.png`); plot objects named for reuse in the reports / manuscript.
+  (`Figures/Farm_mgmt_*.png`); plot objects named for reuse in the reports / manuscript.
+- **`04c_farm_mgmt_piedemonte.R`** (+ **`05c_farm_mgmt_piedemonte_plot.R`**) — the
+  single-ecoregion cut. Reads `04`'s persisted frame, restricts to Piedemonte
+  (region fixed → regional species pool held constant), replaces the collinear
+  elevation/precipitation/canopy with their first PC, and refits. The strongest
+  test for a real management effect; the null holds.
 - **`06a_Extract_cc_buff.R`** — canopy-cover scale-of-effect prep. Per assemblage,
   the convex hull of its point counts buffered at 18 radii (200–2000 m by 200,
   then 3000–10 000 m by 1000); mean woody-vegetation canopy cover (Colombia WVCC
