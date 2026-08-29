@@ -29,9 +29,10 @@ source("Scripts/05c_farm_mgmt_piedemonte_plot.R")  # p_pied_effects
 source("Scripts/05d_species_pool_plot.R")     # p_pool_forest, p_pool_varpart, pool_cor
 bare <- function(p) p + labs(title = NULL, subtitle = NULL)
 
-mm   <- read_csv("Derived/Excels/Farm_mgmt_model_summaries.csv", show_col_types = FALSE) %>% filter(data_subset == "primary")
-soe  <- read_csv("Derived/Excels/Scale_effect_results.csv", show_col_types = FALSE)
-sens <- read_csv("Derived/Excels/Precip_vs_elev_sensitivity.csv", show_col_types = FALSE)
+mm     <- read_csv("Derived/Excels/Farm_mgmt_model_summaries.csv", show_col_types = FALSE) %>% filter(data_subset == "primary")
+soe    <- read_csv("Derived/Excels/Scale_effect_results.csv", show_col_types = FALSE)
+sens   <- read_csv("Derived/Excels/Precip_vs_elev_sensitivity.csv", show_col_types = FALSE)
+scheck <- read_csv("Derived/Excels/Spec_checks.csv", show_col_types = FALSE)
 
 hill_lab  <- c(richness = "Richness (q = 0)", shannon = "Shannon (q = 1)", simpson = "Simpson (q = 2)")
 index_lab <- c(baseline = "(baseline)", Land_use_div = "Land use", Water_mgmt_div = "Water mgmt",
@@ -175,15 +176,17 @@ diversity — a textbook confounding fork.
 
 `Scripts/04d_species_pool_test.R` and a follow-up sensitivity fit the
 model with the environmental term specified several ways. The pasture /
-water coefficient tracks **how hard precipitation is controlled**,
-nothing else:
+water coefficient tracks **how completely precipitation is adjusted
+for** — it is largest when elevation is co-adjusted (the two collinear
+axes trade off) and smallest when precipitation is the sole
+environmental term:
 
 ```{r}
 #| label: tbl-sens
 sens %>%
   select(index, hill, block, focal) %>%
   kable(col.names = c("Index", "Response", "Environmental block", "Focal coefficient"),
-        caption = "Focal coefficient (median [95% CrI]) with the environmental term specified four ways. It is ~+0.08 whenever elevation is in and precipitation only weakly controlled, and ~+0.03-0.04 (CrI includes 0) whenever precipitation is the dominant control. Spline vs quadratic makes no difference.")
+        caption = "Focal coefficient (median [95% CrI]) with the environmental term specified four ways. It is ~+0.08 whenever elevation is co-adjusted (the two collinear terms trade off, so precipitation removes only part of the confound) and ~+0.03-0.04 (CrI includes 0) whenever precipitation is the sole or dominant environmental term. Spline vs quadratic makes no difference.")
 ```
 
 ```{r}
@@ -274,6 +277,43 @@ soe %>%
   kable(caption = "Canopy-cover scale of effect (Scripts/06b): net of elevation + precipitation, bird richness is positively associated with surrounding woody-vegetation cover, strongest at a broad ~8-9 km radius. This is a landscape-context effect, not a farm-management one.")
 ```
 
+## Specification robustness
+
+Three modelling choices were checked (`Scripts/04e_spec_checks.R`); none
+changes the conclusion.
+
+**`(1 | CollectorXyear)`** — the [dataset × year-group] random effect (8
+levels) is only partly confounded with `Ecoregion` (Cramér's V = 0.38;
+the three largest datasets each span 4–5 ecoregions). Its standard
+deviation is 0.18–0.31 on the log scale, so it captures real field-method
+differences among the six source datasets. Dropping it shifts every
+management coefficient by ≤ 0.02, on the full data and in Piedemonte
+alike — it is not doing region-confounding control.
+
+**`resp_se()`** — propagating the iNEXT standard errors makes the fit a
+precision-weighted regression. Dropping it (treating the point estimates
+as exact) gives \~25 % *larger* management coefficients and \~7 % wider
+credible intervals, because the well-sampled assemblages — which show a
+weaker signal — then count for less. `resp_se` is both the honest and
+the conservative choice.
+
+**Distance-to-farm cutoff** — using all assemblages instead of the \< 300
+m primary set shifts the coefficients by ≤ 0.03, toward zero if anything.
+
+```{r}
+#| label: tbl-scheck
+scheck %>%
+  filter(env == "climate") %>%
+  mutate(variant = recode(variant, base = "base", no_collector = "no CollectorXyear RE",
+                          no_resp_se = "no resp_se"),
+         hill = recode(hill, !!!hill_lab), index = recode(index, !!!index_lab)) %>%
+  select(hill, index, variant, focal_est) %>%
+  pivot_wider(names_from = variant, values_from = focal_est) %>%
+  arrange(hill, index) %>%
+  kable(digits = 3,
+        caption = "Focal coefficient (posterior median) under the climate spec: base vs dropping the CollectorXyear random effect vs dropping resp_se. Primary analysis.")
+```
+
 # Interpretation
 
 **At this scale, with these data, farm management diversification shows
@@ -303,20 +343,26 @@ policy, conditioning on `Ecoregion` would regress away part of a real
 effect. Three things argue against that:
 
 1.  **The attenuation is reproducible with no region factor at all**,
-    purely by controlling precipitation better (a precipitation spline,
-    or a spec where precipitation dominates the adjustment). Continuous
+    purely by making precipitation the dominant environmental term
+    (dropping the elevation term from the continuous spec). Continuous
     climate variables do not carry a "the factor soaks up management
     structure" mechanism, so if the `Ecoregion` result were
     over-adjustment they could not reproduce it — but they do.
 2.  **There is a concrete confounding path**:
-    `Pasture_mgmt_div ~ precipitation` r = 0.30, and precipitation
-    drives bird diversity. The DAG has this fork.
-3.  **The `climate` spec under-controls precipitation relative to the
-    factor** — `precip + precip²` is a rigid global curve; the 5-level
-    factor is a flexible step (R² 0.83 with precipitation). Giving the
-    continuous spec a precipitation spline moves it toward the factor's
-    near-zero answer. So the gap is a *precision-of-adjustment* gap, not
-    an over- vs correct-adjustment gap.
+    `Pasture_mgmt_div ~ precipitation` r = 0.30 (and only 0.02 with
+    elevation), and precipitation drives bird diversity. The DAG has
+    this fork.
+3.  **The `climate` spec controls precipitation *worse* than the factor,
+    not better.** Elevation and precipitation go in as two
+    negatively-correlated continuous terms; because they trade off,
+    precipitation removes less of the pasture / water confound than it
+    would alone. Drop the elevation term — or use the single flexible
+    `Ecoregion` factor — and precipitation absorbs the full confound: the
+    coefficient falls to \~0.04 with the credible interval spanning zero,
+    regardless of whether precipitation enters as a quadratic or a
+    spline. So the `climate`–`ecoregion` gap is the parametric climate
+    spec *under-adjusting* precipitation under collinearity, not the
+    factor over-adjusting.
 
 **Caveat.** With everything this collinear, "legitimate adjustment" is
 an inference from the pattern, not a proof. Precipitation and "regional
@@ -328,15 +374,23 @@ to report, and the +0.08 is not a defensible management effect.
 
 # Where this goes
 
-- **DAG-consistent precipitation term** — replace `precip + precip²` in
-  the climate spec with `s(precip)` so it is controlled as well as the
-  `Ecoregion` factor does it; the two specs should then converge at \~0.
+- **A better environmental term in the `climate` spec** — the parametric
+  `Elev + Elev² + precip + precip²` under-controls precipitation because
+  the two collinear axes trade off (§5.1). A single flexible term (an
+  `s(lat, long)` spatial spline, or dropping the elevation quadratic), or
+  simply taking the `Ecoregion`-factor result as primary, would close the
+  `climate`–`ecoregion` gap at \~0.
 - **Other response axes** — functional or phylogenetic diversity, or
   species-of-conservation-concern subsets, may respond to management
   where taxonomic Hill numbers do not.
 - **The biogeographic residual** — an endemism-weighted pool or an eBird
   composition measure, if the compositional part of the `Ecoregion`
   effect is worth chasing.
+- **Farm isolation** — `dist_predio_cercano` (distance to the nearest
+  neighbouring property, from the MJE spreadsheet) is uncorrelated with
+  the point-count `Distancia_farm` (r ≈ 0), so it is a genuinely new
+  covariate: a candidate predictor and/or a spatial-autocorrelation
+  control.
 - **Manuscript framing** — the honest story is "farm-scale management
   diversification does not detectably raise bird taxonomic diversity
   once the environmental gradient is accounted for; surrounding
