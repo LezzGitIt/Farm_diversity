@@ -4,7 +4,7 @@
 
 ### Two-step filter per farm:
 ###   1. GEOSPATIAL -- the species' Ayerbe Colombian range polygon contains the farm (point-in-polygon).
-###   2. ELEVATIONAL -- the farm's elevation falls within the species' elevational range +/- `elev_margin_m`, using Minimum/Maximum elevation from Suarez-Castro et al. (2024) AOH table S3 (1,652 Colombian species). Species with no elevational limit (~17%, mostly Nearctic migrants and waterbirds) pass this step.
+###   2. ELEVATIONAL -- the farm's elevation falls within the species' elevational range +/- `elev_margin_m`. Elevational limits are layered by source priority: Suarez-Castro et al. (2024) AOH table S3 (1,652 spp), then the manual book digitisations from ../Ssp-bird-data-wrangling/Scripts/03_FT_elev.R -- Hazen's read-out of the Ayerbe-Quinones (2018) field guide, then Hazen's read-out of Hilty. Species still without a limit (~13%, mostly Nearctic migrants / seabirds) pass this step unfiltered.
 
 ### `pool_point` -> Data/Farm_species_pool.csv, treated as raw input like Data/Farm_covariates.csv. The combined Ayerbe range layer is cached in Data/Geospatial/Ayerbe_ranges.gpkg (the 1,890 shapefile reads are slow on a cold OneDrive).
 
@@ -13,13 +13,14 @@
 # Setup ----
 library(tidyverse)
 library(sf)
+library(readxl)
 
 sf::sf_use_s2(TRUE)
 dir.create("Data/Geospatial", recursive = TRUE, showWarnings = FALSE)
 dir.create("Figures", showWarnings = FALSE)
 
 ayerbe_dir   <- "../Geospatial_data/Ayerbe_shapefiles_1890spp"
-suarez_path  <- "/Users/aaronskinner/Library/CloudStorage/OneDrive-UBC/Academia/Datasets_external/Elev_ranges/Suarez_castro_AOH_birds_table_S3_V3.csv"
+elev_dir     <- "/Users/aaronskinner/Library/CloudStorage/OneDrive-UBC/Academia/Datasets_external/Elev_ranges"
 ranges_cache <- "Data/Geospatial/Ayerbe_ranges.gpkg"
 
 elev_margin_m <- 250
@@ -50,24 +51,32 @@ if (file.exists(ranges_cache)) {
   message("wrote ", ranges_cache, ": ", n_distinct(ranges$species), " species, ", nrow(ranges), " features")
 }
 
-# Elevational limits: Suarez-Castro et al. (2024) AOH table S3 ----
+# Elevational limits: layered by source priority ----
 
-suarez <- read_csv(suarez_path, show_col_types = FALSE) %>%
-  select(Scientific.Name, Name.Clements.eBird., Minimum.elevation, Maximum.elevation)
+suarez <- read_csv(file.path(elev_dir, "Suarez_castro_AOH_birds_table_S3_V3.csv"), show_col_types = FALSE)
 
-## one row per name (BirdLife or Clements), so an Ayerbe species can match on either
-suarez_by_name <- bind_rows(
-  suarez %>% transmute(name = Scientific.Name, elev_lo = Minimum.elevation, elev_hi = Maximum.elevation),
-  suarez %>% transmute(name = Name.Clements.eBird., elev_lo = Minimum.elevation, elev_hi = Maximum.elevation)
+## Hazen's manual read-outs from the two field guides (03_FT_elev.R), keyed by Ayerbe binomial -- the range-polygon species names
+hazen_ayerbe <- read_xlsx(file.path(elev_dir, "Hazen_Elev_ranges_Ayerbe.xlsx")) %>%
+  transmute(name = Species_ayerbe, elev_lo = Min_ayerbe, elev_hi = Max_ayerbe)
+hazen_hilty <- suppressWarnings(read_xlsx(file.path(elev_dir, "Hazen_Elev_ranges_Hilty.xlsx"))) %>%
+  transmute(name = Species_ayerbe, elev_lo = Min_Hilty, elev_hi = Max_Hilty)
+
+## bind in priority order (Suarez-Castro first, on either its BirdLife or Clements name), keep the first non-NA per name
+elev_by_name <- bind_rows(
+  suarez %>% transmute(name = Scientific.Name,       elev_lo = Minimum.elevation, elev_hi = Maximum.elevation, src = "Suarez-Castro 2024"),
+  suarez %>% transmute(name = Name.Clements.eBird.,  elev_lo = Minimum.elevation, elev_hi = Maximum.elevation, src = "Suarez-Castro 2024"),
+  hazen_ayerbe %>% mutate(src = "Ayerbe 2018 guide"),
+  hazen_hilty  %>% mutate(src = "Hilty guide")
 ) %>%
-  filter(!is.na(name), !is.na(elev_lo)) %>%
+  filter(!is.na(name), !is.na(elev_lo), !is.na(elev_hi)) %>%
   distinct(name, .keep_all = TRUE)
 
 elev_lookup <- tibble(species = sort(unique(ranges$species))) %>%
-  left_join(suarez_by_name, by = c("species" = "name"))
-n_with_elev <- sum(!is.na(elev_lookup$elev_lo))
-message(n_with_elev, " of ", nrow(elev_lookup), " Ayerbe species matched to a Suarez-Castro elevational range (",
-        round(100 * n_with_elev / nrow(elev_lookup)), "%); the rest pass the elevation filter unfiltered")
+  left_join(elev_by_name, by = c("species" = "name"))
+message(sum(!is.na(elev_lookup$elev_lo)), " of ", nrow(elev_lookup),
+        " Ayerbe species have an elevational limit (",
+        round(100 * mean(!is.na(elev_lookup$elev_lo))), "%); the rest pass the filter unfiltered. Sources: ",
+        paste(sprintf("%s %d", names(table(elev_lookup$src)), table(elev_lookup$src)), collapse = ", "))
 
 # Farms ----
 
