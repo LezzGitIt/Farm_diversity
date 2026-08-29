@@ -119,6 +119,43 @@ summ <- pmap_dfr(grid, function(hill, index, env, key) {
 
 write_csv(summ, "Derived/Excels/Species_pool_model_test.csv")
 
+# Precipitation functional-form sensitivity ----
+
+### Follow-up: the four blocks above vary WHICH environmental axis is adjusted; this varies HOW precipitation enters (quadratic vs spline) and whether elevation is co-adjusted, for the two indices that carry a signal. Confirms it is elevation-co-adjustment, not a rigid precip term, that inflates the pasture/water coefficient. -> Derived/Excels/Precip_vs_elev_sensitivity.csv (read by qmd/Farm_mgmt_summary.qmd).
+
+precip_specs <- c(
+  "poly2"    = "Elev_mean_z + I(Elev_mean_z^2) + Tot_prec_mean_z + I(Tot_prec_mean_z^2) + canopy_10k_z",
+  "splP"     = "Elev_mean_z + I(Elev_mean_z^2) + s(Tot_prec_mean_z, k = 5) + canopy_10k_z",
+  "precOnly" = "Tot_prec_mean_z + I(Tot_prec_mean_z^2) + canopy_10k_z",
+  "splPonly" = "s(Tot_prec_mean_z, k = 5) + canopy_10k_z"
+)
+precip_lab <- c(poly2 = "Elev^2 + precip^2", splP = "Elev^2 + spline(precip)",
+                precOnly = "precip^2 only (no elevation)", splPonly = "spline(precip) only")
+
+pflex_grid <- expand_grid(hill = c("richness", "shannon"),
+                          index = c("Pasture_mgmt_div", "Water_mgmt_div"),
+                          pspec = names(precip_specs)) %>%
+  mutate(key = paste("precipflex", hill, index, pspec, sep = "__"))
+
+pflex <- pmap_dfr(pflex_grid, function(hill, index, pspec, key) {
+  frame <- frame_for(hill, index)
+  f <- brm(bf(as.formula(paste0("log_response | resp_se(se_log, sigma = TRUE) ~ focal_z + ",
+                                precip_specs[[pspec]], " + Num_pc_log_z + Num_hab_z + doy_sin + doy_cos + ",
+                                "(1 | Id_gcs) + (1 | CollectorXyear)"))),
+           data = frame, prior = mod_priors, chains = chains, iter = iter, warmup = warmup, seed = 1989,
+           control = list(adapt_delta = adapt_delta), refresh = 0, silent = 2,
+           file = sprintf("Derived/models/%s", key), file_refit = "on_change")
+  b <- fixef(f)["focal_z", ]
+  tibble(index = recode(index, Pasture_mgmt_div = "Pasture mgmt", Water_mgmt_div = "Water mgmt"),
+         hill = recode(hill, richness = "Richness (q=0)", shannon = "Shannon (q=1)"),
+         block = precip_lab[[pspec]],
+         focal = sprintf("%+.3f [%+.3f, %+.3f]", b["Estimate"], b["Q2.5"], b["Q97.5"]),
+         focal_est = round(b["Estimate"], 3))
+}) %>%
+  arrange(index, hill, factor(block, levels = precip_lab))
+
+write_csv(pflex, "Derived/Excels/Precip_vs_elev_sensitivity.csv")
+
 # Report ----
 
 cat("\n== Variance partitioning: pool_point ~ climate (farm level, lm) ==\n")
@@ -146,3 +183,6 @@ summ %>%
   select(hill, index, env, bayes_R2, min_bulk_ess, max_rhat, n_div) %>%
   arrange(hill, index, env) %>%
   print(n = Inf)
+
+cat("\n== Precipitation functional-form sensitivity (pasture / water) ==\n")
+pflex %>% select(index, hill, block, focal) %>% print(n = Inf)
