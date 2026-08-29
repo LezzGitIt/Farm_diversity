@@ -3,8 +3,8 @@
 When a better dataset lands (more complete diversification indices, additional
 farm IDs, etc.), work through this. It records what has already been decided or
 tested so nothing is re-litigated from scratch. Full detail is in the synthesis
-report `Scripts/qmd/Farm_mgmt_summary.qmd` (renamed from `Farm_mgmt_story.qmd`)
-and `Project_notes.md` (local only, chronological).
+report `Scripts/qmd/Farm_mgmt_summary.qmd` and `Project_notes.md` (local only,
+chronological).
 
 ---
 
