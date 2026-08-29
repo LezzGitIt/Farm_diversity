@@ -46,7 +46,10 @@ chronological).
 
 - [ ] **DAG** (`dag.R`) — re-render; re-run the implied-conditional-independence
       spot-checks; confirm the minimal adjustment set is still
-      `{Climate, LandForest, Observer, Season, Year}`.
+      `{Climate, LandForest, NumPC, Observer, Season, Year}` (NumPC now enters as
+      a genuine confounder via the latent `FarmSize -> NumPC` leg, not just
+      precision; `LandForest` is an Ecoregion proxy in the climate spec, pure
+      precision under the ecoregion factor).
 - [ ] **Distance cutoff** — regenerate the `Distancia_farm` histogram; confirm
       300 m still drops only the clearly-displaced survey groups; compare
       300 / 500 / full.
@@ -97,6 +100,19 @@ chronological).
 - [ ] **eBird composition** (`auk`) or an **endemism-weighted pool** — for the
       *compositional* biogeographic residual the range-map richness count misses.
       Needs the Colombia EBD download; `auk` not yet installed.
+- [ ] **Farm area (hectares)** as a covariate — the DAG's latent `FarmSize` has
+      an unblockable `FarmSize -> BirdDiv` path (species-area / interior habitat /
+      edge) on top of the `-> FarmDiv` and `-> NumPC` legs that conditioning on
+      `NumPC` already closes. Measuring hectares would close the last leg and
+      remove a positive bias on the management coefficient. Check whether the MJE
+      xls or the wrangling repo carries a farm-area column.
+- [ ] **On-farm woody cover / practice detail the four indices miss** — the
+      `FarmerValues -> {snag retention, pesticide use, fencerow width, ...} ->
+      BirdDiv` path is a *farm-scale* forest/practice effect that `canopy_10k`
+      (10 km buffer, set by topography and hundreds of landholders — a scale
+      mismatch with farmer decisions) cannot stand in for. A farm-boundary canopy
+      or hedgerow-length layer, or a finer practice inventory, would let this be
+      adjusted rather than left as a caveat.
 - [ ] **Prior sensitivity on `sd` / `sigma`** given many single-assemblage farms.
 - [ ] **Investigate the missing** water/pasture-management values (9 farms,
       mostly Piedemonte) — may be resolved by the new data.
