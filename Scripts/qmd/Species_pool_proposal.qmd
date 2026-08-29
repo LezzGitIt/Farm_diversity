@@ -1,0 +1,223 @@
+---
+title: "Proposal: a regional species-pool covariate for the farm-management analysis"
+subtitle: "Closing the one gap the DAG leaves in the `climate` model version"
+date: today
+format:
+  pdf:
+    toc: false
+    number-sections: true
+    fig-pos: "H"
+    geometry: margin=1in
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r}
+#| label: setup
+
+library(tidyverse)
+library(knitr)
+library(sf)
+library(rnaturalearth)
+library(geosphere)
+ggplot2::theme_set(theme_minimal(11))
+
+fc <- read_csv("Data/Farm_covariates.csv", show_col_types = FALSE)
+
+ayerbe_dir <- "../Geospatial_data/Ayerbe_shapefiles_1890spp"
+n_ayerbe <- length(list.files(ayerbe_dir, pattern = "[.]shp$"))
+
+eco_span <- fc %>%
+  group_by(Ecoregion) %>%
+  summarize(
+    farms = n(),
+    `elev range (m)` = sprintf("%d - %d", round(min(Elev_mean)), round(max(Elev_mean))),
+    `max farm-farm dist (km)` = {
+      m <- cbind(Long_mean, Lat_mean)
+      if (n() < 2) NA_real_ else round(max(distm(m)) / 1000)
+    },
+    .groups = "drop"
+  )
+```
+
+# The gap
+
+The causal DAG (`Scripts/dag.R`) says the primary **climate + canopy** model
+version — farm elevation, precipitation and 10 km canopy cover — is a sufficient
+adjustment set for the effect of management diversification on bird diversity,
+**with one exception**: it does not carry the **regional species pool**. The five
+ecoregions differ in which species are biogeographically available (Venezuelan
+endemics in Valle del Cesar; the Amazonian + Andean + Llanos overlap in
+Piedemonte) in ways that elevation, climate and forest cover do not encode. The
+`ecoregion` model version captures this — crudely — as a 5-level factor, which is
+exactly why it is kept as a robustness check.
+
+A continuous species-pool covariate built from external range data would let the
+`climate` version stand on its own, and would turn the `climate`-vs-`ecoregion`
+comparison from "two coarse bounds" into "one identified model plus a check".
+
+# Two data sources
+
+| | **Ayerbe range maps** | **eBird (via `auk`)** |
+|---|---|---|
+| what it measures | *potential* pool — species whose range polygon covers the farm | *realized* regional richness — species actually reported nearby |
+| location | already local: `Ayerbe_shapefiles_1890spp/` in the sibling `Geospatial_data/` folder (`r n_ayerbe` species) | eBird Basic Dataset (EBD), Colombia subset — must request + download |
+| effort confounding | none (expert range hypotheses) | strong — must be standardised |
+| resolution | coarse; range maps are generous, smoothed | fine; checklist-level, can be elevation / season filtered |
+| effort to build | low (local spatial join) | moderate (EBD download + `auk` filter + `iNEXT`) |
+
+**Recommendation:** build the pool from the **Ayerbe range maps as the primary**
+(local, fast, no effort confounding, directly operationalises "what could occur
+here"), and use **eBird as a validation layer** — if the two pool measures agree
+and behave the same in the model, the covariate is trustworthy.
+
+# Approach A — range-map pool (primary)
+
+For each farm, count the species whose Colombian range polygon intersects a
+buffer around the farm centroid.
+
+1. Read the `r n_ayerbe` Ayerbe shapefiles, bind into one `sf` with a
+   `species` column, harmonise names to the eBird / point-count taxonomy (the
+   data package's `Taxonomy` table carries the crosswalk).
+2. Buffer each farm centroid (test 25 / 50 / 100 km — see §5).
+3. `st_intersects()` each buffer against the range layer →
+   `pool_range = # species whose range overlaps the buffer`.
+4. **Elevation-band refinement (recommended):** restrict the count to species
+   whose Ayerbe range *and* the elevation band `farm elevation ± 300 m`
+   (`../Geospatial_data/Environmental/elevation/`) both overlap the buffer. This
+   isolates the *biogeographic* pool at a comparable elevation, so the covariate
+   adds signal beyond the `Elev` term already in the model rather than
+   re-expressing elevational turnover.
+5. Output: `pool_range` (and `pool_range_elevband`) per farm →
+   `Data/Farm_species_pool.csv`, treated as a frozen covariate like
+   `Farm_covariates.csv`.
+
+# Approach B — eBird regional richness via `auk` (validation)
+
+`auk` is an R front end to AWK for filtering the EBD before it is read into R. It
+does extraction and cleaning only — no modelling. Workflow:
+
+1. **Get the data.** Request the **Colombia** EBD + Sampling Event Data from
+   eBird (a custom download, not the ~150 GB global file; free, approval takes a
+   few days). Install `auk` (not currently in the project library).
+2. **Filter** (`auk_ebd() |> auk_filter()`), per farm buffer or once for the
+   whole farm region, keeping:
+   - `auk_bbox()` / a buffer polygon around the farms;
+   - `auk_protocol(c("Stationary", "Traveling"))` + `auk_distance(c(0, 2))` —
+     short checklists, comparable footprint to a point count;
+   - `auk_duration(c(5, 120))`;
+   - `auk_complete()` — **required**: absence is only interpretable on complete
+     checklists;
+   - `auk_date()` — a recent broad window (e.g. 2010–present) for density; the
+     pool is a slow-changing property, so year-round rather than season-matched,
+     with a season-matched version as a sensitivity.
+3. **Read + zero-fill.** `read_ebd()` + `read_sampling()`, then
+   `auk_zerofill()` → detection / non-detection per species per checklist.
+4. **Standardise effort with `iNEXT`** (the same tool `00` uses for the farm
+   estimates — keeps the two diversity measures on the same footing). Per farm
+   buffer, treat each complete checklist as an incidence sample; run
+   incidence-based `iNEXT` and take **coverage-standardised richness at a common
+   coverage** (e.g. the minimum Cmax across buffers, or a fixed 0.95). This
+   removes the "more checklists → more species" artefact.
+5. Output: `pool_ebd` per farm, alongside `n_checklists` and the achieved
+   coverage, so sparsely-covered farms can be flagged.
+
+# Design choices (both approaches)
+
+- **Spatial scale.** The pool is a farm-location property; a buffer defines "the
+  region". Farms cluster tightly within some ecoregions and spread across others
+  (below), so a single radius means different things in different regions. Test
+  **25, 50, 100 km** and either pick one *a priori* (~50 km — regional but
+  sub-ecoregion) or choose by fit, the way `06b` picks the canopy scale. Nearby
+  farms will get near-identical pool values — that is correct, the pool is
+  regional.
+- **Level.** Farm centroid is simplest and matches `Farm_covariates.csv`. The
+  assemblage's point-count hull centroid (as in `06a`) is an option but adds
+  little at these buffer sizes.
+- **Elevation-band matching.** Restrict both pool measures to a band around the
+  farm's own elevation (Approach A step 4; a post-hoc elevation filter on the
+  eBird checklists for Approach B) so the covariate is *biogeographic residual*,
+  not elevation turnover the `Elev` term already handles.
+
+```{r}
+#| label: tbl-span
+kable(eco_span, caption = "Farm clustering by ecoregion — the buffer radius means different things where farms are spread (Cafetera) vs tight (Piedemonte).")
+```
+
+```{r}
+#| label: fig-map
+#| fig-width: 6.5
+#| fig-height: 6
+#| fig-cap: "Farms (points) with 50 km buffers, over Colombia. eBird coverage is uneven — dense in Cafetera / around cities, sparser in Piedemonte and Valle del Cesar — which is the main feasibility risk for Approach B."
+
+col <- ne_countries(country = "Colombia", scale = "medium", returnclass = "sf")
+farms_sf <- st_as_sf(fc, coords = c("Long_mean", "Lat_mean"), crs = 4326)
+buf <- farms_sf %>% st_transform(3116) %>% st_buffer(50000) %>% st_transform(4326)
+
+ggplot() +
+  geom_sf(data = col, fill = "grey95", colour = "grey70") +
+  geom_sf(data = buf, fill = NA, colour = "grey60", linewidth = 0.2) +
+  geom_sf(data = farms_sf, aes(colour = Ecoregion), size = 1.3) +
+  coord_sf(xlim = c(-79, -71), ylim = c(1, 12.5)) +
+  labs(colour = NULL) +
+  theme(legend.position = "bottom")
+```
+
+# Feasibility and risks
+
+- **eBird spatial unevenness (Approach B, the main risk).** Colombian eBird
+  effort is concentrated in the coffee region and near cities and reserves;
+  Piedemonte and Valle del Cesar are thinner. Some farm buffers may have too few
+  complete checklists for a stable estimate. Mitigation: a minimum-checklist
+  threshold (e.g. 30–50), report how many farms fall below it, and widen the
+  buffer only for those. If a large share of farms is under-covered, Approach B
+  degrades to a coarse cross-check and Approach A carries the analysis.
+- **Range-map generosity (Approach A).** Ayerbe polygons are expert hypotheses
+  and tend to over-predict at range edges; `pool_range` will be smoother than the
+  truth and may under-separate adjacent ecoregions. The elevation-band refinement
+  helps. Reading 1 890 shapefiles off OneDrive is slow the first time (cache a
+  single combined `.gpkg`).
+- **Taxonomy.** Ayerbe and the point-count data need to be reconciled to one
+  taxonomy (eBird/Clements). The data package's `Taxonomy` crosswalk covers the
+  point-count side; Ayerbe names are mostly current Clements binomials but a
+  handful will need manual mapping.
+- **Circularity.** The pool must be a *regional* quantity, not a proxy for the
+  farm's own diversity. Check (below) that it correlates with `Ecoregion`
+  strongly but with *within-ecoregion* farm diversity weakly.
+
+# Validation plan
+
+Before using it, confirm the covariate does what it should:
+
+1. **`pool ~ Ecoregion` R²** should be high (it is meant to carry the between-region
+   signal), and **`pool` vs within-ecoregion residual farm diversity** should be
+   weak (it is not meant to be the response in disguise).
+2. **`pool_range` vs `pool_ebd`** correlation across farms — agreement means the
+   measure is robust to the data source.
+3. **The decisive test:** add `species_pool_z` to the `climate` model version. If
+   the weak pasture / water-management coefficients now attenuate toward zero the
+   way they already do under the `ecoregion` version, the pool covariate has
+   absorbed the residual biogeographic confounding — and the `ecoregion`
+   robustness version can be **retired**, leaving one identified primary model. If
+   the `climate` results are unchanged, either the pool is poorly measured or the
+   residual confounding is climatic, not biogeographic.
+
+# Integration
+
+- New script `Scripts/01b_species_pool.R` (after `01_farm_covariates.R`): builds
+  `Data/Farm_species_pool.csv` from the Ayerbe shapefiles (+ optionally the eBird
+  pipeline), one row per `Id_gcs`.
+- `02_match_farm_diversity.R` left-joins it onto `Farm_diversity_matched.csv`.
+- `04_farm_mgmt_mod.R`: add `species_pool_z` to the `climate` `region_fixed`
+  string; the `ecoregion` version is kept until the validation test above passes,
+  then dropped.
+
+# Recommendation
+
+Build **Approach A** (Ayerbe range-map pool, elevation-band matched, 50 km buffer)
+first — it is local, fast, and free of effort confounding. Run the §7 validation.
+If it passes, that is the deliverable. Use **Approach B** (`auk` + `iNEXT` on the
+Colombia EBD) as a second, independent estimate to confirm it — and only lean on
+B as primary if the range maps prove too coarse to separate the ecoregions.
