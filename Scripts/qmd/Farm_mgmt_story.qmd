@@ -193,10 +193,12 @@ controlled (`pool_elev`) and smallest where it is most controlled
 
 `Scripts/01b_species_pool.R` builds a per-farm **potential species pool**
 (`spp_pool`): the number of bird species whose Ayerbe Colombian range polygon
-contains the farm **and** whose elevational limits (Suárez-Castro et al. 2024,
-1 652 species) span the farm's elevation ± 250 m. This is external to the
-point-count data, so it is a genuine "how many species could occur here", not a
-circular re-measurement.
+contains the farm **and** whose elevational limits span the farm's elevation
+± 250 m. Elevational limits come from Suárez-Castro et al. (2024) backfilled with
+the manual field-guide digitisations in `03_FT_elev.R` (Ayerbe-Quiñones 2018,
+Hilty) — 87 % of the 1 788 range-map species; the rest (Nearctic migrants,
+seabirds) pass unfiltered. This is external to the point-count data, so it is a
+genuine "how many species could occur here", not a circular re-measurement.
 
 But `spp_pool` is itself a composite of the two environmental gradients —
 `spp_pool ~ poly(Elev, 2)` gives R² ≈ 0.43, `~ poly(precip, 2)` R² ≈ 0.63, and
