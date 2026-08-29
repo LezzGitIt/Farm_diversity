@@ -136,8 +136,8 @@ Reports (`quarto render`, after the scripts they source):
 approach, preliminary results, interpretation); start here.
 `qmd/04_exploratory_report.qmd` (← `03_exploratory.R`),
 `qmd/05_farm_mgmt_mod_report.qmd` (← `05_farm_mgmt_plots.R` + `06b_scale_of_effect.R`),
-`qmd/Piedemonte_report.qmd`, `qmd/Piedemonte_proposal.qmd`,
-`qmd/Species_pool_proposal.qmd`.
+`qmd/Piedemonte_report.qmd`. Earlier scoping proposals are in
+`qmd/_archive/` (`Piedemonte_proposal.qmd`, `Species_pool_proposal.qmd`).
 
 Species-pool follow-up: `01b_species_pool.R` (→ `Data/Farm_species_pool.csv`, the
 Ayerbe + Suárez-Castro potential species pool), `04d_species_pool_test.R`
