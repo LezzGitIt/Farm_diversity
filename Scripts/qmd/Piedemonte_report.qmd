@@ -1,0 +1,242 @@
+---
+title: "Piedemonte-only analysis: bird diversity and farm management diversification"
+subtitle: "`Scripts/04c_farm_mgmt_piedemonte.R`, `05c_farm_mgmt_piedemonte_plot.R`"
+date: today
+format:
+  pdf:
+    toc: false
+    number-sections: true
+    fig-pos: "H"
+    geometry: margin=1in
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+
+source("Scripts/05c_farm_mgmt_piedemonte_plot.R")   # -> p_pied_effects
+
+library(tidyverse)
+library(knitr)
+
+hill_lab  <- c(richness = "Richness (q = 0)", shannon = "Shannon (q = 1)", simpson = "Simpson (q = 2)")
+index_lab <- c(baseline = "(baseline)", Land_use_div = "Land use", Water_mgmt_div = "Water mgmt",
+               Pasture_mgmt_div = "Pasture mgmt", All_practices_div = "All practices")
+
+mm <- read_csv("Derived/Excels/Farm_mgmt_piedemonte_summaries.csv", show_col_types = FALSE)
+pd <- read_csv("Derived/Excels/Farm_mgmt_piedemonte_data.csv", show_col_types = FALSE)
+
+pf <- pd %>% distinct(Id_gcs, .keep_all = TRUE)
+n_farm <- nrow(pf)
+n_asm  <- pd %>% filter(Hill == "shannon") %>% nrow()
+n_300  <- pd %>% filter(Hill == "shannon", dist_farm < 300) %>% nrow()
+env_cor <- cor(pf %>% select(Elev_mean, Tot_prec_mean, canopy_10k))
+env_pca <- prcomp(pf %>% select(Elev_mean, Tot_prec_mean, canopy_10k), scale. = TRUE)
+pc1_var <- summary(env_pca)$importance["Proportion of Variance", "PC1"]
+```
+
+# The question
+
+Across all five ecoregions (`Scripts/04_farm_mgmt_mod.R`), no farm-management
+diversification index shows a robust association with bird diversity. The only
+non-null coefficients — pasture and water management, weakly positive under the
+climate-adjusted model — vanish when `Ecoregion` is added, and those two indices
+are the ones most confounded with region. The causal DAG (`Scripts/dag.R`)
+identifies the **regional species pool** as the one confounder the climate model
+cannot fully capture with elevation, precipitation and canopy.
+
+Restricting the analysis to a **single ecoregion** removes that by design: the
+regional species pool is held approximately constant, the `Ecoregion → index`
+pathway is gone, and between-region climate structure no longer contributes. If a
+real management effect exists, this is where it should be easiest to see; a null
+here is the most credible null in the analysis.
+
+**Piedemonte** is the natural choice — `r n_farm` of the 69 matched farms,
+roughly half the point counts in the source dataset, and the full range of the
+management indices.
+
+# Data
+
+```{r}
+#| label: tbl-data
+
+pd %>%
+  filter(Hill == "shannon") %>%
+  summarize(
+    Farms = n_distinct(Id_gcs),
+    Assemblages = n(),
+    `Assemblages < 300 m` = sum(dist_farm < 300),
+    `Single-assemblage farms` = sum(table(Id_gcs) == 1)
+  ) %>%
+  pivot_longer(everything(), names_to = "Quantity", values_to = "n") %>%
+  kable(caption = "Piedemonte subset.")
+```
+
+```{r}
+#| label: tbl-index-cov
+
+pf %>%
+  summarize(across(c(Land_use_div, All_practices_div), ~ sum(!is.na(.x)))) %>%
+  pivot_longer(everything(), names_to = "index", values_to = "farms") %>%
+  bind_rows(tibble(index = c("Water_mgmt_div", "Pasture_mgmt_div"),
+                   farms = mm %>% filter(term == "focal_z", index %in% c("Water_mgmt_div", "Pasture_mgmt_div"),
+                                         data_subset == "primary", re_spec == "full_re") %>%
+                     distinct(index, n_farm) %>% pull(n_farm))) %>%
+  mutate(index = recode(index, !!!index_lab)) %>%
+  arrange(desc(farms)) %>%
+  kable(col.names = c("Index", "Farms with data"),
+        caption = "Management-index coverage (of 25 farms). Water and pasture management take the missing-data hit -- their models are n = 17 and should be read with wide credible intervals.")
+```
+
+# Model
+
+## The environmental gradient
+
+Within Piedemonte, elevation, precipitation and 10 km canopy cover are almost
+perfectly collinear — they form a single foothill gradient (lower = drier, less
+forested; higher = wetter, more forested):
+
+```{r}
+#| label: tbl-collin
+
+m <- round(env_cor, 2)
+m[lower.tri(m, diag = TRUE)] <- NA
+as_tibble(m, rownames = "var") %>%
+  kable(caption = "Farm-level correlations among the three environmental covariates, within Piedemonte (n = 25).")
+```
+
+They cannot go in a 25-farm model separately, so they are replaced by
+**`env_pc1`**, the first principal component of the three, which captures
+**`r sprintf("%.0f%%", 100 * pc1_var)`** of their joint variance (loadings
+`r paste(sprintf("%.2f", env_pca$rotation[, "PC1"]), collapse = " / ")` for
+elevation / precipitation / canopy — the three load equally). `env_pc1` is linear
+only; over an elevation range of ~270–760 m the relationship is monotonic and
+25 farms will not support a quadratic.
+
+## Specification
+
+Same Bayesian measurement-error structure as the full analysis, one index at a
+time:
+
+```
+log(diversity) | resp_se(se, sigma = TRUE) ~
+    index_z + env_pc1_z +
+    Num_pc_log_z + Num_hab_z + doy_sin + doy_cos +
+    (1 | Id_gcs) + (1 | CollectorXyear)
+```
+
+- Response uncertainty (the iNEXT bootstrap / coverage-based SE) enters through
+  `resp_se()`. All three Hill numbers.
+- `Num_hab` (number of habitat types surveyed) is a sampling-scope control: 2013
+  and 2016/17 surveys covered forest only, 2019 onward the land-use gradient.
+- A **no-index baseline** per response, for the variance comparison.
+- **No "ecoregion" model version** — region is fixed, nothing to bracket against.
+- All continuous predictors re-standardised *within* Piedemonte, so a coefficient
+  is the effect of a 1-SD change among Piedemonte farms.
+- Primary analysis = assemblages whose point counts average < 300 m from the farm
+  (`r n_300` of `r n_asm`); the full set is a sensitivity.
+- Priors as in `04`; `adapt_delta = 0.999`, `iter = 4000` (small n).
+
+## Sensitivities
+
+1. **Full assemblage set** (no 300 m cutoff).
+2. **Drop `(1 | CollectorXyear)`** — all 8 collector-year batches are present
+   within Piedemonte, so this is the natural place to check whether that grouping
+   re-absorbs a management signal.
+
+# Results
+
+All 39 fits converged (max R-hat `r sprintf("%.3f", max(mm$max_rhat))`,
+`r sum(mm$n_divergent)` divergences total).
+
+## The management-diversification coefficient
+
+```{r}
+#| label: fig-effects
+#| fig-width: 9
+#| fig-height: 4.2
+
+p_pied_effects + labs(title = NULL, subtitle = NULL)
+```
+
+```{r}
+#| label: tbl-focal
+
+mm %>%
+  filter(term == "focal_z", data_subset == "primary", re_spec == "full_re") %>%
+  mutate(cell = sprintf("%+.3f [%+.3f, %+.3f]  P=%.2f  (n=%d)", estimate, conf_low, conf_high, p_direction_pos, n_farm),
+         hill = recode(hill, !!!hill_lab), index = recode(index, !!!index_lab)) %>%
+  select(hill, index, cell) %>%
+  pivot_wider(names_from = hill, values_from = cell) %>%
+  kable(caption = "Standardized effect of a 1-SD increase in each index on log diversity (primary analysis): posterior median [90% CrI], P(effect > 0), and n farms.")
+```
+
+Every 90% credible interval includes zero. **All practices and Land use** — the
+indices least confounded with the environmental gradient — are flat null across
+all three Hill numbers. **Pasture** (+0.05 to +0.08) and **water** (+0.05 to
++0.06) management are weakly positive with the same sign as the full analysis,
+but with n = 17 farms the intervals are wide; water management on richness is the
+closest to a signal (P = 0.94).
+
+## Variance explained
+
+```{r}
+#| label: tbl-r2
+
+mm %>%
+  filter(data_subset == "primary", re_spec == "full_re") %>%
+  distinct(hill, index, bayes_R2) %>%
+  mutate(hill = recode(hill, !!!hill_lab), index = recode(index, !!!index_lab)) %>%
+  pivot_wider(names_from = index, values_from = bayes_R2) %>%
+  kable(digits = 2, caption = "Bayesian R^2: no-index baseline vs each index model. The indices add little; the small gains for water / pasture are on n = 17.")
+```
+
+## Sensitivity
+
+```{r}
+#| label: tbl-sens
+
+mm %>%
+  filter(term == "focal_z") %>%
+  mutate(fit = case_when(data_subset == "full" ~ "Full set",
+                         re_spec == "no_collector" ~ "No collector RE",
+                         TRUE ~ "Primary"),
+         val = sprintf("%+.3f", estimate),
+         hill = recode(hill, !!!hill_lab), index = recode(index, !!!index_lab)) %>%
+  select(hill, index, fit, val) %>%
+  pivot_wider(names_from = fit, values_from = val) %>%
+  arrange(hill, index) %>%
+  kable(caption = "Focal coefficient (posterior median) across the three fits. The estimates barely move -- dropping the collector random effect changes nothing, so it was not masking a management effect.")
+```
+
+# Interpretation
+
+- **The null holds in the strongest test available.** With region fixed, the
+  species pool held approximately constant, and the full range of the
+  region-separable indices (Land use, All practices) present, there is still no
+  detectable management–diversity association.
+- The **weak pasture / water pattern** survives into Piedemonte at the same
+  magnitude, but it never separates from zero here (n = 17) any more than it did
+  in the full analysis. It is consistent with a small real effect *or* with
+  residual within-Piedemonte confounding; this analysis cannot distinguish them.
+- **The collector random effect is exonerated** — the concern that
+  `(1 | CollectorXyear)` was soaking up a management signal (because 4 of 6
+  collectors are Piedemonte-only) does not hold: removing it leaves every
+  coefficient essentially unchanged.
+
+# Caveats
+
+- **Power.** Effectively a ~`r n_farm`-farm regression (most farms contribute one
+  assemblage) with a measurement-error response. It can rule out large effects
+  (standardized |β| greater than roughly 0.15–0.2) but not small ones. A null
+  means "no evidence of an effect at this power", not "evidence of no effect".
+- **Single environmental axis.** `env_pc1` is one summary of a three-way
+  collinear gradient; the individual roles of elevation, rainfall and canopy
+  cannot be separated within Piedemonte.
+- **Observational.** Unmeasured farmer priorities / farm size and within-
+  Piedemonte environment beyond `env_pc1` remain possible confounders — this is a
+  cleaner comparison than the full analysis, not a randomized one.
