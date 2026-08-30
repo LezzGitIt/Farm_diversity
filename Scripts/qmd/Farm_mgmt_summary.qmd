@@ -23,15 +23,16 @@ editor:
 
 library(tidyverse)
 library(knitr)
+library(brms)
 
 source("Scripts/05_farm_mgmt_plots.R")             # p_index_effects, p_bayes_r2
 source("Scripts/05c_farm_mgmt_piedemonte_plot.R")  # p_pied_effects
 source("Scripts/05d_species_pool_plot.R")          # p_env_specs, p_pool_varpart, pool_cor
-source("Scripts/05e_doy_explainer.R")              # p_fit (fitted seasonal effect)
 bare <- function(p) p + labs(title = NULL, subtitle = NULL)
 
 soe    <- read_csv("Derived/Excels/Scale_effect_results.csv", show_col_types = FALSE)
 scheck <- read_csv("Derived/Excels/Spec_checks.csv", show_col_types = FALSE)
+liksens <- read_csv("Derived/Excels/Likelihood_sensitivity.csv", show_col_types = FALSE)
 
 hill_lab  <- c(richness = "Richness (q = 0)", shannon = "Shannon (q = 1)", simpson = "Simpson (q = 2)")
 index_lab <- c(baseline = "(baseline)", Land_use_div = "Land use", Water_mgmt_div = "Water mgmt",
@@ -205,10 +206,38 @@ to be worth removing before asking about management.
 
 ```{r}
 #| label: fig-doy
-#| fig-cap: "Fitted seasonal (day-of-year) multiplier on diversity, no-index Shannon baseline. Shaded = Nearctic-migrant season; ticks = the assemblages' mean survey days."
+#| fig-cap: "Fitted seasonal (day-of-year) multiplier on diversity, no-index Shannon baseline. Shaded = Nearctic-migrant season (Sep 1 – Apr 30); ticks = the assemblages' mean survey days."
 #| fig-width: 9
-#| fig-height: 3.4
-p_fit + labs(title = NULL)
+#| fig-height: 3.2
+doy_fit <- readRDS("Derived/models/mod_shannon__baseline__climate__primary.rds")
+doy_dr  <- as_draws_df(doy_fit)
+doy_grid <- tibble(doy = 1:365) %>% mutate(s = sin(2 * pi * doy / 365), cc = cos(2 * pi * doy / 365))
+
+doy_season <- map_dfr(seq_len(nrow(doy_grid)), function(i) {
+  lp <- doy_dr$b_doy_sin * doy_grid$s[i] + doy_dr$b_doy_cos * doy_grid$cc[i]
+  tibble(doy = doy_grid$doy[i], est = median(lp), lo = quantile(lp, 0.05), hi = quantile(lp, 0.95))
+})
+doy_ym     <- mean(doy_season$est)                          # centre on the annual mean -> multiplier
+doy_season <- doy_season %>% mutate(across(c(est, lo, hi), ~ exp(.x - doy_ym)))
+doy_days   <- read_csv("Derived/Excels/Farm_mgmt_model_data.csv", show_col_types = FALSE) %>%
+  filter(Hill == "shannon") %>% distinct(Assemblage, doy)
+doy_amp    <- with(doy_dr, sqrt(b_doy_sin^2 + b_doy_cos^2))
+doy_mb     <- lubridate::yday(seq(as.Date("2021-01-01"), as.Date("2021-12-01"), by = "month"))
+
+ggplot(doy_season, aes(doy, est)) +
+  annotate("rect", xmin = 244, xmax = 365, ymin = -Inf, ymax = Inf, alpha = 0.08, fill = "#2166ac") +
+  annotate("rect", xmin = 0, xmax = 120, ymin = -Inf, ymax = Inf, alpha = 0.08, fill = "#2166ac") +
+  geom_hline(yintercept = 1, linetype = "dashed", colour = "grey60") +
+  geom_ribbon(aes(ymin = lo, ymax = hi), alpha = 0.2, fill = "#762a83") +
+  geom_line(linewidth = 1, colour = "#762a83") +
+  geom_rug(data = doy_days, aes(x = doy), sides = "b", alpha = 0.5, inherit.aes = FALSE) +
+  scale_x_continuous(breaks = doy_mb, labels = month.abb, expand = expansion(0)) +
+  labs(x = NULL, y = "Seasonal multiplier on diversity",
+       subtitle = sprintf("Amplitude %.0f%% peak-to-mean (90%% CrI %.0f-%.0f%%)",
+                          100 * (exp(median(doy_amp)) - 1),
+                          100 * (exp(quantile(doy_amp, 0.05)) - 1),
+                          100 * (exp(quantile(doy_amp, 0.95)) - 1))) +
+  cowplot::theme_minimal_grid(11)
 ```
 
 # Preliminary results
@@ -364,7 +393,7 @@ soe %>%
 
 ## Specification robustness
 
-Three modelling choices were checked (`Scripts/04e_spec_checks.R`); none
+Four modelling choices were checked (`Scripts/04e_spec_checks.R`); none
 changes the conclusion.
 
 **`(1 | CollectorXyear)`** — the \[dataset × year-group\] random effect
@@ -388,6 +417,25 @@ placed counts along access roads or on neighbouring land. The primary
 analysis keeps only assemblages whose counts average \< 300 m from the
 farm; using all assemblages instead shifts the coefficients by
 $\le 0.03$, toward zero if anything.
+
+**Response scale / likelihood** — the model is Gaussian on `log(diversity)`,
+but the raw estimates are close to symmetric (@fig-loglik), so is the
+result an artefact of the log scale? Refitting the pasture and water ×
+richness / Shannon models as Gaussian-on-log, Student-t-on-log (robust to
+the left tail) and Gaussian-on-raw — all with `resp_se`, the only
+alternatives that support it — and expressing the effect as a percent
+change in diversity per 1-SD increase in the index gives the same answer
+each way (@tbl-liksens): a small positive effect, credible interval
+usually spanning zero.
+
+```{r}
+#| label: tbl-liksens
+liksens %>%
+  select(index, hill, likelihood, pct_effect) %>%
+  pivot_wider(names_from = likelihood, values_from = pct_effect) %>%
+  arrange(index, hill) %>%
+  kable(caption = "Focal effect as a percent change in diversity per +1 SD of the index (climate specification, < 300 m), under three likelihoods that all support resp_se.")
+```
 
 ```{r}
 #| label: fig-dist
