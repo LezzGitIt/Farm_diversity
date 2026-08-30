@@ -123,13 +123,11 @@ outputs are picked up by consumers via `latest_file()`.
   precipitation as quadratic vs spline). It does not move the management
   coefficients; along the way it shows the weak pasture/water signal is residual
   precipitation confounding. → `Derived/Excels/{Species_pool_model_test,Precip_vs_elev_sensitivity}.csv`.
-- **`04e_spec_checks.R`** — refits the primary models dropping, in turn, the
-  `(1|CollectorXyear)` random effect and `resp_se()`. Neither changes the
-  conclusion. → `Derived/Excels/Spec_checks.csv`.
-- **`05e_doy_explainer.R`** — explainer figure for the cyclic day-of-year terms
-  (`doy_sin` + `doy_cos`): the two basis waves, and the fitted seasonal
-  multiplier on diversity from the no-index Shannon baseline. →
-  `Figures/doy_terms_explainer.png`.
+- **`04e_spec_checks.R`** — refits the primary models under alternative
+  specifications: dropping `(1|CollectorXyear)`, dropping `resp_se()`, and three
+  response-scale / likelihood choices (Gaussian-on-log, Student-t-on-log,
+  Gaussian-on-raw). None changes the conclusion. →
+  `Derived/Excels/{Spec_checks,Likelihood_sensitivity}.csv`.
 - **`06a_Extract_cc_buff.R`** — canopy-cover scale-of-effect prep. Per assemblage,
   the convex hull of its point counts buffered at 18 radii (200–2000 m by 200,
   then 3000–10 000 m by 1000); mean woody-vegetation canopy cover (Colombia WVCC
