@@ -1,6 +1,8 @@
 # Figure for the Piedemonte-only farm-management models ----
 
-### Reads Scripts/04c_farm_mgmt_piedemonte.R's summary table and draws the focal-index forest plot (primary fit + the two sensitivities). Safe to source() -- never refits.
+### Reads Scripts/04c_farm_mgmt_piedemonte.R's summary table and draws the focal-index forest plot (primary fit + the all-assemblages sensitivity). Safe to source() -- never refits.
+
+### The drop-CollectorXyear-RE sensitivity is fit by 04c but not shown here -- it moves the focal coefficient by <= 0.01 (see the 04c header) and the extra series clutters the plot.
 
 # Setup ----
 library(tidyverse)
@@ -14,14 +16,12 @@ index_order <- unname(index_labels)
 hill_labels <- c(richness = "Richness (q = 0)", shannon = "Shannon (q = 1)", simpson = "Simpson (q = 2)")
 
 Summ <- read_csv("Derived/Excels/Farm_mgmt_piedemonte_summaries.csv", show_col_types = FALSE) %>%
-  filter(term == "focal_z") %>%
+  filter(term == "focal_z", re_spec == "full_re") %>%
   mutate(
-    fit = case_when(data_subset == "full" ~ "All assemblages",
-                    re_spec == "no_collector" ~ "No collector RE",
-                    TRUE ~ "Primary (< 300 m)"),
+    fit = if_else(data_subset == "full", "All assemblages", "Primary (< 300 m)"),
     Hill = factor(recode(hill, !!!hill_labels), levels = unname(hill_labels)),
     Index = factor(recode(index, !!!index_labels), levels = index_order),
-    fit = factor(fit, levels = c("Primary (< 300 m)", "All assemblages", "No collector RE"))
+    fit = factor(fit, levels = c("Primary (< 300 m)", "All assemblages"))
   )
 
 # Forest plot ----
@@ -32,9 +32,8 @@ p_pied_effects <- ggplot(Summ, aes(estimate, fct_rev(Index), colour = fit, shape
                   position = position_dodge(width = 0.6), fatten = 2) +
   facet_wrap(~Hill) +
   scale_colour_manual(values = c("Primary (< 300 m)" = "#d95f02",
-                                 "All assemblages" = "grey30",
-                                 "No collector RE" = "#1b7837"), name = NULL) +
-  scale_shape_manual(values = c(17, 16, 15), name = NULL) +
+                                 "All assemblages" = "grey30"), name = NULL) +
+  scale_shape_manual(values = c(17, 16), name = NULL) +
   labs(x = "Standardized effect on log diversity (posterior median, 90% CrI)", y = NULL,
        title = "Piedemonte-only: management diversification vs bird diversity",
        subtitle = "Region fixed, species pool ~ constant; env_pc1 + sampling adjusted. n = 17-24 farms per index") +
