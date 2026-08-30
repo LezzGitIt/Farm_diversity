@@ -17,9 +17,13 @@ Farm_div_raw <- read_excel(farm_div_xls, sheet = sheet_or("Data", "Sheet1"))
 ## Column-label lookup provided alongside the indices
 Farm_div_labels <- read_excel(farm_div_xls, sheet = sheet_or("Dictionary", "Sheet2"))
 
-### Bird taxonomic-diversity (Hill number) estimates per farm, produced by `Scripts/qmd/02_Analysis_iNEXT.qmd` into Derived/Excels/ (latest date-stamped export is picked up automatically)
+### Bird taxonomic-diversity (Hill number) estimates per farm, produced by `Scripts/00_bird_diversity_estimates.R` into Derived/Excels/ (latest date-stamped export is picked up automatically)
 Tax_div_all_farms <- read_csv(latest_file("Derived/Excels", "^Tax_div_all_farms_.*\\.csv$"), show_col_types = FALSE)
 Tax_div_coverage65 <- read_csv(latest_file("Derived/Excels", "^Tax_div_coverage65_.*\\.csv$"), show_col_types = FALSE)
+
+### Farm-level environmental covariates (ecoregion, climate normals, elevation), built from the point-count site covariates by `Scripts/01_farm_covariates.R`
+Farm_covariates <- read_csv("Data/Farm_covariates.csv", show_col_types = FALSE) %>%
+  mutate(Id_gcs = as.character(Id_gcs))
 
 # Clean farm diversity data ----
 
@@ -88,6 +92,19 @@ Farm_div_matched <- Farm_div_matched %>%
   left_join(Farm_richness, by = "Id_gcs") %>%
   left_join(Farm_shannon_simpson, by = "Id_gcs") %>%
   left_join(Farm_n_assemblages, by = "Id_gcs")
+
+# Attach the farm-level environmental covariates ----
+
+## Ecoregion, climate normals and elevation, so the matched file is a single farm-level analysis table for the linking model (drops the point-count coordinates and within-farm SDs, which the model does not need)
+Farm_div_matched <- Farm_div_matched %>%
+  left_join(
+    Farm_covariates %>%
+      select(Id_gcs, Nombre_finca, Ecoregion, Departamento,
+             Elev_mean, Avg_temp_mean, Tot_prec_mean),
+    by = "Id_gcs"
+  )
+
+stopifnot(sum(is.na(Farm_div_matched$Ecoregion)) == 0)
 
 # Export ----
 

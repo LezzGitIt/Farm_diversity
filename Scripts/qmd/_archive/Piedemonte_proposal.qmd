@@ -1,0 +1,240 @@
+---
+title: "Proposal: a Piedemonte-only cut of the bird-diversity ~ farm-management analysis"
+subtitle: "Companion to `Scripts/04_farm_mgmt_mod.R` and `Scripts/dag.R`"
+date: today
+format:
+  pdf:
+    toc: false
+    number-sections: true
+    fig-pos: "H"
+    geometry: margin=1in
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r}
+#| label: setup
+
+library(tidyverse)
+library(knitr)
+library(cowplot)
+ggplot2::theme_set(theme_cowplot(11))
+
+## Same modelling frame 04 builds, plus the per-assemblage distance-to-farm 04 uses for the cutoff.
+d <- read_csv("Derived/Excels/Farm_mgmt_model_data.csv", show_col_types = FALSE)
+
+we <- "../Ssp-bird-data-wrangling/Derived/Excels/"
+asm_dist <- read_csv(paste0(we, "Site_covs.csv"), show_col_types = FALSE) %>%
+  select(Id_muestreo_no_dc, Id_gcs, Distancia_farm) %>%
+  left_join(read_csv(paste0(we, "Event_covs.csv"), show_col_types = FALSE), by = "Id_muestreo_no_dc") %>%
+  filter(!is.na(Ano)) %>%
+  mutate(Assemblage = str_replace_all(paste(Uniq_db, Id_gcs, Ano_grp, Season, sep = "."), " |-", "_")) %>%
+  summarize(dist_farm = mean(Distancia_farm, na.rm = TRUE), .by = Assemblage)
+
+pied <- d %>% filter(Ecoregion == "Piedemonte") %>% left_join(asm_dist, by = "Assemblage")
+pied_farm <- pied %>% distinct(Id_gcs, .keep_all = TRUE)
+
+indices <- c("Land_use_div", "Water_mgmt_div", "Pasture_mgmt_div", "All_practices_div")
+index_lab <- c(Land_use_div = "Land use", Water_mgmt_div = "Water mgmt",
+               Pasture_mgmt_div = "Pasture mgmt", All_practices_div = "All practices")
+
+n_farm <- nrow(pied_farm)
+n_asm_q12 <- pied %>% filter(Hill == "shannon") %>% nrow()
+n_asm_q0  <- pied %>% filter(Hill == "richness") %>% nrow()
+n_asm_300 <- pied %>% filter(Hill == "shannon", dist_farm < 300) %>% nrow()
+
+## within-Piedemonte environmental collinearity + PC1
+env <- pied_farm %>% select(Elev_mean, Tot_prec_mean, canopy_10k) %>% drop_na()
+env_cor <- cor(env)
+env_pca <- prcomp(env, scale. = TRUE)
+pc1_var <- summary(env_pca)$importance["Proportion of Variance", "PC1"]
+pied_farm <- pied_farm %>%
+  mutate(env_pc1 = as.numeric(predict(env_pca, newdata = select(pied_farm, Elev_mean, Tot_prec_mean, canopy_10k))[, 1]))
+
+idx_pc1_cor <- sapply(indices, function(v) cor(pied_farm[[v]], pied_farm$env_pc1, use = "pairwise"))
+```
+
+# Why do it
+
+Every version of the full-data analysis is dominated by *between-ecoregion*
+differences. Bird diversity is mostly a regional story (R² of
+`richness ~ Ecoregion` ≈ 0.45), the two management indices with a signal
+(pasture, water) are the ones most confounded with region, and that signal
+disappears the moment `Ecoregion` is adjusted for. The causal DAG
+(`Scripts/dag.R`) says the one thing the primary "climate" version cannot
+capture is the **regional species pool** — biogeographic history that elevation,
+precipitation and canopy do not encode.
+
+Restricting to a single ecoregion removes all of that by design:
+
+- the regional species pool is held (approximately) constant — the eBird
+  species-pool proxy on the backlog becomes unnecessary for this cut;
+- the `Ecoregion -> FarmDiv` path and all between-region climate structure are
+  gone;
+- what remains to worry about: unobserved farmer values / farm size, the
+  *within*-Piedemonte environment, and the data-collector / protocol confound.
+
+**Piedemonte** is the natural choice: it holds `r n_farm` of the 69 matched
+farms, roughly half of all point counts in the source data, and spans the full
+range of the management indices. If the region-separable indices show nothing
+here, that is the most credible null in the whole analysis; if they show
+something, it is the strongest signal.
+
+# Feasibility
+
+```{r}
+#| label: tbl-feas
+
+tibble(
+  Quantity = c("Matched farms", "Assemblages (q = 1 / q = 2)",
+               "Assemblages (q = 0 richness)", "Assemblages surviving the < 300 m cutoff",
+               "CollectorXyear levels present", "Farms with a single assemblage"),
+  Value = c(as.character(n_farm),
+            as.character(n_asm_q12),
+            as.character(n_asm_q0),
+            paste0(n_asm_300, " of ", n_asm_q12),
+            as.character(n_distinct(pied$CollectorXyear)),
+            as.character(sum(count(filter(pied, Hill == "shannon"), Id_gcs)$n == 1)))
+) %>%
+  kable(caption = "Piedemonte subset size.")
+```
+
+```{r}
+#| label: tbl-index-cov
+
+pied_farm %>%
+  summarize(across(all_of(indices), ~ sum(!is.na(.x)))) %>%
+  pivot_longer(everything(), names_to = "index", values_to = "farms_with_data") %>%
+  mutate(index = recode(index, !!!index_lab),
+         range = sapply(indices, function(v) {
+           x <- pied_farm[[v]]; sprintf("%.1f - %.1f", min(x, na.rm = TRUE), max(x, na.rm = TRUE))
+         })) %>%
+  kable(col.names = c("Index", "Farms with data", "Range"),
+        caption = "Management-index coverage within Piedemonte (of 25 farms). Water and pasture management take the missing-data hit.")
+```
+
+Land use and All practices are usable across nearly all farms and span their full
+`[0-1]` range. Water and pasture management are only available for
+`r sum(!is.na(pied_farm$Water_mgmt_div))` farms — analyses of those two will have
+wide credible intervals and should be read cautiously.
+
+# The wrinkle: within Piedemonte the environment collapses to one axis
+
+In the full dataset, canopy cover is only moderately correlated with elevation
+(r ≈ 0.44), so elevation, precipitation and canopy can all sit in the model
+separately. **Within Piedemonte they do not:**
+
+```{r}
+#| label: tbl-collin
+
+env_cor[lower.tri(env_cor, diag = TRUE)] <- NA
+as_tibble(round(env_cor, 2), rownames = "var") %>%
+  kable(caption = "Farm-level correlations among the three environmental covariates, within Piedemonte (n = 25).")
+```
+
+Piedemonte is a foothill gradient — lower farms are drier and less forested,
+higher farms wetter and more forested, all one thing. Putting all three in a
+25-farm model would make them individually unidentifiable.
+
+**Proposed fix:** replace them with the first principal component of
+{elevation, precipitation, canopy}, which captures
+**`r sprintf("%.0f%%", 100 * pc1_var)`** of their joint variance — a single
+"environmental gradient" control.
+
+```{r}
+#| label: fig-pc1
+#| fig-width: 9
+#| fig-height: 3.4
+#| fig-cap: "Left: the three covariates collapse onto one gradient (PC1). Right: All practices is orthogonal to that gradient (the clean test); Land use is mildly correlated."
+
+long_env <- pied_farm %>%
+  select(env_pc1, Elev_mean, Tot_prec_mean, canopy_10k) %>%
+  pivot_longer(-env_pc1) %>%
+  mutate(name = recode(name, Elev_mean = "Elevation (m)", Tot_prec_mean = "Precip (mm)", canopy_10k = "Canopy 10 km (%)"))
+p_a <- ggplot(long_env, aes(env_pc1, value)) +
+  geom_point(size = 1.3, alpha = 0.8) +
+  facet_wrap(~name, scales = "free_y") +
+  labs(x = "Environmental PC1", y = NULL)
+
+long_idx <- pied_farm %>%
+  select(env_pc1, Land_use_div, All_practices_div) %>%
+  pivot_longer(-env_pc1) %>%
+  mutate(name = recode(name, Land_use_div = sprintf("Land use (r = %.2f)", idx_pc1_cor["Land_use_div"]),
+                       All_practices_div = sprintf("All practices (r = %.2f)", idx_pc1_cor["All_practices_div"])))
+p_b <- ggplot(long_idx, aes(env_pc1, value)) +
+  geom_point(size = 1.3, alpha = 0.8) +
+  geom_smooth(method = "lm", se = FALSE, colour = "#d95f02", linewidth = 0.6) +
+  facet_wrap(~name) +
+  labs(x = "Environmental PC1", y = "Index [0-1]")
+
+plot_grid(p_a, p_b, nrow = 1, rel_widths = c(1.5, 1))
+```
+
+# Proposed model
+
+Same Bayesian measurement-error structure as `04`, one index at a time:
+
+```
+log(diversity) | resp_se(se, sigma = TRUE) ~
+    index_z + env_pc1_z +
+    Num_pc_log_z + Num_hab_z + doy_sin + doy_cos +
+    (1 | Id_gcs) + (1 | CollectorXyear)
+```
+
+- Priors, `adapt_delta = 0.99`, and the coverage-based q = 0 SE all as in `04`.
+- A **no-index baseline** per response, for the `bayes_R2` comparison.
+- **No "ecoregion" robustness version** — region is fixed, nothing to bracket
+  against.
+- `env_pc1` linear only: over an elevation range of ~270-760 m the relationship
+  is monotonic, and 25 farms will not support a quadratic.
+- The `< 300 m` distance-to-farm cutoff carries over
+  (`r n_asm_300` of `r n_asm_q12` assemblages), with the full set as a
+  sensitivity as in `04`.
+
+## Indices and responses
+
+| Index | Farms | Note |
+|---|---|---|
+| **All practices** | `r sum(!is.na(pied_farm$All_practices_div))` | **primary** — orthogonal to the environmental gradient (r = `r sprintf("%.2f", idx_pc1_cor["All_practices_div"])`) |
+| Land use | `r sum(!is.na(pied_farm$Land_use_div))` | secondary — mildly correlated with the gradient (r = `r sprintf("%.2f", idx_pc1_cor["Land_use_div"])`) |
+| Water / pasture mgmt | `r sum(!is.na(pied_farm$Water_mgmt_div))` | thin — report with a wide-CrI caveat |
+
+All three Hill numbers (q = 0 richness has `r n_asm_q0` assemblages).
+
+## Sensitivity checks
+
+- **Drop `(1 | CollectorXyear)`.** This is the natural place to run the backlog
+  question of whether the collector random effect re-absorbs a management signal:
+  all 8 collector-year levels are present within Piedemonte, and the
+  forest-only (2013 / 2016-17) vs land-use-gradient (2019+) sampling change is
+  the main thing that grouping carries.
+- **Full distance set** vs the `< 300 m` primary, as in `04`.
+- Optionally **`env_pc1` replaced by elevation alone** (or canopy alone) — given
+  All practices is orthogonal to the gradient, that result should be robust to
+  the choice.
+
+# What this can and cannot tell us
+
+Effectively a ~`r n_farm`-point regression (most farms contribute one
+assemblage) with a measurement-error response. It can **rule out large effects**
+(standardized |beta| greater than roughly 0.15-0.2) but not small ones. A null
+result means "no evidence of an effect at this power", not "evidence of no
+effect". Unobserved farmer values / farm size and the within-Piedemonte
+environment beyond PC1 remain possible confounders — this is a cleaner
+observational comparison, not a randomized one.
+
+# Implementation
+
+Two options:
+
+1. **A `region_subset` dimension in `04`'s grid** (`"all"` / `"piedemonte"`),
+   swapping the region block for `env_pc1_z` and filtering
+   `Ecoregion == "Piedemonte"` when `piedemonte`. ~12 extra fits, a few minutes.
+   Keeps everything in one script but adds branching.
+2. **A standalone `Scripts/04c_farm_mgmt_piedemonte.R`** that sources `04`'s data
+   build and refits the reduced grid. Cleaner separation given `04` is already
+   dense; a small `05`-style plot script and a short report section would follow.
+
+Recommend option 2.
