@@ -305,7 +305,7 @@ pasture management barely vary within a region). A workable sequence:
    diversity.
 
 **Concrete next step:** merge the indices and climate / elevation into
-`03_Farm_diversity.qmd`'s assemblage-level data, then fit a `brms` model such as
+`_archive/03_Farm_diversity.qmd`'s assemblage-level data, then fit a `brms` model such as
 
 ```
 richness | resp_se(se) ~ within_allpractices + between_allpractices +

@@ -8,7 +8,7 @@ library(GGally)
 library(cowplot)
 library(conflicted)
 
-## Pin the dplyr verbs so this script still runs when sourced into a session that already has MASS / car attached (e.g. after 03_Farm_diversity.qmd)
+## Pin the dplyr verbs so this script still runs when sourced into a session that already has MASS / car attached (e.g. after qmd/_archive/03_Farm_diversity.qmd)
 conflicts_prefer(dplyr::select)
 conflicts_prefer(dplyr::filter)
 conflicts_prefer(dplyr::recode)
@@ -136,7 +136,7 @@ print(p_matched_compare)
 
 # By ecoregion: ordering and long format ----
 
-### Motivation: at this spatial scale bird diversity is mostly explained by ecoregion (see Scripts/qmd/03_Farm_diversity.qmd). If the management indices also track ecoregion, then Ecoregion in a bird-diversity model soaks up variation that farm management could otherwise explain.
+### Motivation: at this spatial scale bird diversity is mostly explained by ecoregion (see Scripts/qmd/_archive/03_Farm_diversity.qmd). If the management indices also track ecoregion, then Ecoregion in a bird-diversity model soaks up variation that farm management could otherwise explain.
 
 ## Order ecoregions by ascending mean farm-level bird richness, so every plot reads left (low-diversity ecoregion) to right (high) and a management gradient, if present, shows as a trend
 ecoregion_order <- Farm_div_eco %>%

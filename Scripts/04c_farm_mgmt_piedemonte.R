@@ -1,6 +1,6 @@
 # Piedemonte-only cut of the bird-diversity ~ farm-management analysis ----
 
-### The full-data analysis (Scripts/04_farm_mgmt_mod.R) is dominated by between-ecoregion differences, and the one management signal (pasture / water) is confounded with region. Restricting to a single ecoregion holds the regional species pool (approximately) constant -- the strongest available test for a real management effect. See Scripts/qmd/_archive/Piedemonte_proposal.qmd for the full rationale.
+### The full-data analysis (Scripts/04_farm_mgmt_mod.R) is dominated by between-ecoregion differences, and the one management signal (pasture / water) is confounded with region. Restricting to a single ecoregion holds the regional species pool (approximately) constant -- the strongest available test for a real management effect. See Scripts/qmd/Farm_mgmt_summary.qmd for the full rationale.
 
 ### Piedemonte-specific choices:
 ###   * WITHIN Piedemonte elevation, precipitation and 10 km canopy are r ~ 0.91-0.94 collinear (one foothill gradient), so they cannot go in the model separately. They are replaced by env_pc1: the first principal component of the three (captures ~95% of their joint variance).

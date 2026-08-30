@@ -1,6 +1,6 @@
 # Bird taxonomic-diversity (Hill number) estimates per assemblage ----
 
-### Ported from `Scripts/qmd/02_Analysis_iNEXT.qmd`, which is kept as the reference write-up (Cmax rationale, the iNEXT 4-steps framework, the sample-completeness / rarefaction plots). This is the runnable pipeline version -- data prep, the iNEXT4steps call, and the two exports, nothing else.
+### Ported from `Scripts/qmd/_archive/02_Analysis_iNEXT.qmd`, which is kept as the reference write-up (Cmax rationale, the iNEXT 4-steps framework, the sample-completeness / rarefaction plots). This is the runnable pipeline version -- data prep, the iNEXT4steps call, and the two exports, nothing else.
 
 ### An assemblage = [data collector . farm . year-group . season]. For each assemblage the raw point-count counts are summed (across days, repeat surveys and point counts) into a species-by-assemblage matrix, then Anne Chao's iNEXT 4-steps workflow (Chao et al. 2020) gives asymptotic (q = 1, 2) and coverage-standardised non-asymptotic (q = 0, at Cmax) diversity with bootstrap uncertainty.
 

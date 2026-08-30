@@ -11,8 +11,11 @@ Figures/
 # Source data - kept local only, not pushed to GitHub
 Data/
 
-# Local session notes - kept local only, not pushed to GitHub
+# Local working notes / planning docs - kept local only, not pushed to GitHub
 Project_notes.md
+Reanalysis_checklist.md
+Scripts/qmd/_archive/Piedemonte_proposal.qmd
+Scripts/qmd/_archive/Species_pool_proposal.qmd
 
 # R
 .Rhistory

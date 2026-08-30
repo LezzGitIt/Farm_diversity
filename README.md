@@ -61,18 +61,21 @@ work.
 - `Figures/` — saved plots
 - `Scripts/` — the numbered `.R` pipeline (see Pipeline below), plus:
   - `Farm_diversity_fns.R` — shared helpers (`latest_file()`).
-  - `qmd/` — Quarto documents. Two are **reference only, not run by the pipeline**:
-    `02_Analysis_iNEXT.qmd` (the iNEXT 4-steps write-up + diagnostic plots; the
+  - `qmd/` — Quarto documents. The report generators that *do* run:
+    `Farm_mgmt_summary.qmd` (the whole-story synthesis — start here),
+    `04_exploratory_report.qmd` (sources `Scripts/03_exploratory.R`),
+    `05_farm_mgmt_mod_report.qmd` (sources `Scripts/05_farm_mgmt_plots.R`),
+    `Piedemonte_report.qmd`. A project-level `_quarto.yml`
+    (`execute-dir: project`) keeps the relative paths resolving.
+  - `qmd/_archive/` — superseded, not pipeline stages, kept for the record:
+    `02_Analysis_iNEXT.qmd` (the iNEXT 4-steps write-up + diagnostic plots;
     runnable version is `Scripts/00_bird_diversity_estimates.R`) and
     `03_Farm_diversity.qmd` (the exploratory GLMM baseline; superseded by the
-    baseline spec inside `Scripts/04_farm_mgmt_mod.R`). The other two are report
-    generators that *do* run: `04_exploratory_report.qmd` (sources
-    `Scripts/03_exploratory.R`) and `05_farm_mgmt_mod_report.qmd` (sources
-    `Scripts/05_farm_mgmt_plots.R`). A project-level `_quarto.yml`
-    (`execute-dir: project`) keeps the relative paths resolving.
+    baseline spec inside `Scripts/04_farm_mgmt_mod.R`). Two planning proposals
+    also live here but are **gitignored** (local only).
 - `_quarto.yml` — Quarto project config (`execute-dir: project`) for `Scripts/qmd/`.
-- `Project_notes.md` — session notes. **Not pushed to GitHub** (gitignored, local
-  only).
+- `Project_notes.md`, `Reanalysis_checklist.md` — working notes. **Not pushed to
+  GitHub** (gitignored, local only).
 
 ## Pipeline
 
@@ -148,14 +151,13 @@ Reports (`quarto render`, after the scripts they source):
 approach, preliminary results, interpretation); start here.
 `qmd/04_exploratory_report.qmd` (← `03_exploratory.R`),
 `qmd/05_farm_mgmt_mod_report.qmd` (← `05_farm_mgmt_plots.R` + `06b_scale_of_effect.R`),
-`qmd/Piedemonte_report.qmd`. Earlier scoping proposals are in
-`qmd/_archive/` (`Piedemonte_proposal.qmd`, `Species_pool_proposal.qmd`).
+`qmd/Piedemonte_report.qmd`.
 
 `01b_species_pool.R` (→ `Data/Farm_species_pool.csv`) builds the per-farm
 Ayerbe + Suárez-Castro potential species pool consumed by `04d`.
 
-Reference-only (not pipeline stages): `qmd/02_Analysis_iNEXT.qmd`,
-`qmd/03_Farm_diversity.qmd` (superseded by `00` and `04`); **`dag.R`** — the
+Superseded, kept in `qmd/_archive/`: `02_Analysis_iNEXT.qmd`,
+`03_Farm_diversity.qmd` (superseded by `00` and `04`). **`dag.R`** — the
 assumed causal DAG behind `04` (`dagitty`/`ggdag` → `Figures/DAG.png`,
 `Derived/Excels/DAG_adjustment_sets.csv`); consult before trusting a `04`
 coefficient.
@@ -200,5 +202,5 @@ Done since: the Piedemonte-only cut (`04c`), the range-map species-pool test
 specification checks (`04e`). Still open: a composition- or endemism-weighted
 species pool for the *biogeographic* residual; a single flexible precipitation
 term so the two specifications converge; farm-area and on-farm woody-cover
-covariates; LOO for the nuisance terms (deferred). See `Reanalysis_checklist.md`
-and `Project_notes.md` (local only).
+covariates; LOO for the nuisance terms (deferred). Full detail in
+`Reanalysis_checklist.md` and `Project_notes.md` (local only).

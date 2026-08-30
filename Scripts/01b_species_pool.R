@@ -1,6 +1,6 @@
 # Regional species-pool covariate from Ayerbe range maps + Suarez-Castro elevational limits ----
 
-### Per-farm "how many bird species could occur here" -- a potential-species-pool covariate. Range maps and published elevational limits are external to the point-count data, so this is NOT circular: it predicts the regional avifauna available to a farm without any knowledge of what was surveyed there. It is the one thing `Ecoregion` carries that elevation + climate + canopy in Scripts/04_farm_mgmt_mod.R do not (biogeographic species pool); see Scripts/dag.R and Scripts/qmd/_archive/Species_pool_proposal.qmd.
+### Per-farm "how many bird species could occur here" -- a potential-species-pool covariate. Range maps and published elevational limits are external to the point-count data, so this is NOT circular: it predicts the regional avifauna available to a farm without any knowledge of what was surveyed there. It is the one thing `Ecoregion` carries that elevation + climate + canopy in Scripts/04_farm_mgmt_mod.R do not (biogeographic species pool); see Scripts/dag.R (the SpeciesPool branch).
 
 ### Two-step filter per farm:
 ###   1. GEOSPATIAL -- the species' Ayerbe Colombian range polygon contains the farm (point-in-polygon).
