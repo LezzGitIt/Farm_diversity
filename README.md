@@ -116,6 +116,20 @@ outputs are picked up by consumers via `latest_file()`.
   (region fixed → regional species pool held constant), replaces the collinear
   elevation/precipitation/canopy with their first PC, and refits. The strongest
   test for a real management effect; the null holds.
+- **`04d_species_pool_test.R`** (+ **`05d_species_pool_plot.R`**) — does the
+  per-farm range-map species pool (`01b`) add anything to `04`? Refits the model
+  with the environmental term specified many ways (species pool / elevation² /
+  precipitation² in every combination that avoids all three at once, plus
+  precipitation as quadratic vs spline). It does not move the management
+  coefficients; along the way it shows the weak pasture/water signal is residual
+  precipitation confounding. → `Derived/Excels/{Species_pool_model_test,Precip_vs_elev_sensitivity}.csv`.
+- **`04e_spec_checks.R`** — refits the primary models dropping, in turn, the
+  `(1|CollectorXyear)` random effect and `resp_se()`. Neither changes the
+  conclusion. → `Derived/Excels/Spec_checks.csv`.
+- **`05e_doy_explainer.R`** — explainer figure for the cyclic day-of-year terms
+  (`doy_sin` + `doy_cos`): the two basis waves, and the fitted seasonal
+  multiplier on diversity from the no-index Shannon baseline. →
+  `Figures/doy_terms_explainer.png`.
 - **`06a_Extract_cc_buff.R`** — canopy-cover scale-of-effect prep. Per assemblage,
   the convex hull of its point counts buffered at 18 radii (200–2000 m by 200,
   then 3000–10 000 m by 1000); mean woody-vegetation canopy cover (Colombia WVCC
@@ -139,9 +153,8 @@ approach, preliminary results, interpretation); start here.
 `qmd/Piedemonte_report.qmd`. Earlier scoping proposals are in
 `qmd/_archive/` (`Piedemonte_proposal.qmd`, `Species_pool_proposal.qmd`).
 
-Species-pool follow-up: `01b_species_pool.R` (→ `Data/Farm_species_pool.csv`, the
-Ayerbe + Suárez-Castro potential species pool), `04d_species_pool_test.R`
-(does it add anything to `04` — no), `05d_species_pool_plot.R`.
+`01b_species_pool.R` (→ `Data/Farm_species_pool.csv`) builds the per-farm
+Ayerbe + Suárez-Castro potential species pool consumed by `04d`.
 
 Reference-only (not pipeline stages): `qmd/02_Analysis_iNEXT.qmd`,
 `qmd/03_Farm_diversity.qmd` (superseded by `00` and `04`); **`dag.R`** — the
@@ -168,14 +181,22 @@ woody-vegetation canopy cover in the surrounding landscape, peaking at ~8–9 km
 (a broad landscape signal, not a farm-scale one).
 
 The causal DAG (`dag.R`, from Aaron's hand-drawn version) gives a minimal
-adjustment set of {climate, landscape forest cover, observer/season/year} — i.e.
-the **climate spec is the DAG-sufficient primary** (climate + canopy + sampling),
-and `Ecoregion` is redundant given those. The `ecoregion` spec is a robustness
-check (the 5-level factor proxying climate, ~80 % R²). Habitat count is a
-*sampling* covariate (number of habitat types surveyed), not a mediator. Canopy
-must be adjusted (not just added for precision) because it blocks an unobserved
-farmer-values backdoor.
+adjustment set of {climate, landscape forest cover, NumPC, observer/season/year}
+— i.e. the **climate spec is the DAG-sufficient primary** (climate + canopy +
+sampling), and `Ecoregion` is redundant given those. The `ecoregion` spec is a
+robustness check (the 5-level factor proxying climate, ~80 % R²). Habitat count
+is a *sampling* covariate (number of habitat types surveyed), not a mediator.
+Landscape forest cover (10 km canopy) is a precision covariate / regional-backdoor
+proxy — not a farmer-values backdoor (no single farmer moves a 10 km buffer); it
+is kept in both specs. `NumPC` is a genuine confounder via a latent farm-size
+path (bigger farms diversify more *and* get more point counts). Two latent paths
+stay unadjusted — farmer values acting through on-farm practices the four indices
+miss, and farm area acting on diversity directly (species–area) — so the result
+is "consistent with no effect", not "no effect".
 
-Still to do: a species-pool proxy (eBird regional richness) for the climate
-version; a Piedemonte-only cut; LOO for the nuisance terms (deferred). See
-`Project_notes.md` (local only) for full session notes.
+Done since: the Piedemonte-only cut (`04c`), the range-map species-pool test
+(`01b` + `04d` — adds nothing), and the specification checks (`04e`). Still open:
+a composition- or endemism-weighted species pool for the *biogeographic* residual;
+a single flexible precipitation term so the climate and ecoregion specs converge;
+farm-area and on-farm woody-cover covariates; LOO for the nuisance terms
+(deferred). See `Reanalysis_checklist.md` and `Project_notes.md` (local only).
