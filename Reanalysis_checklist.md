@@ -45,11 +45,12 @@ chronological).
 ## 3. Specification checks — re-run each with the new data
 
 - [ ] **DAG** (`dag.R`) — re-render; re-run the implied-conditional-independence
-      spot-checks; confirm the minimal adjustment set is still
-      `{Climate, LandForest, NumPC, Observer, Season, Year}` (NumPC now enters as
-      a genuine confounder via the latent `FarmSize -> NumPC` leg, not just
-      precision; `LandForest` is an Ecoregion proxy in the climate spec, pure
-      precision under the ecoregion factor).
+      spot-checks; confirm the two valid adjustment sets are still
+      `{Climate, LandForest, NumPC, Observer, Season, SpeciesPool, Year}` (the
+      climate spec, which needs a species-pool term for the
+      `Ecoregion -> BiogeoHistory -> SpeciesPool -> BirdDiv` backdoor) and
+      `{Climate, Ecoregion, NumPC, Observer}` (the Ecoregion spec, which closes
+      that path directly). NumPC enters via the latent `FarmSize -> NumPC` leg.
 - [ ] **Distance cutoff** — regenerate the `Distancia_farm` histogram; confirm
       300 m still drops only the clearly-displaced survey groups; compare
       300 / 500 / full.

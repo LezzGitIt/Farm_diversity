@@ -168,35 +168,39 @@ coefficient.
 biodiversity estimate. The whole pipeline (estimation → analysis) now runs in
 numbered `.R` scripts.
 
-**Management diversification (`04_farm_mgmt_mod.R`):** no robust association. In
-the primary (climate + canopy) version, pasture and water management are weakly
-positive for richness/Shannon (90% CrI excludes zero), but none of those survive
-the Ecoregion robustness version — and those two indices are the ones most
-confounded with region, so it reads as residual regional confounding. Land use
-and "all practices" (the region-separable indices) are ~0 under both.
+**Management diversification (`04_farm_mgmt_mod.R`):** no clearly detectable
+effect, though the coefficients lean positive throughout (point estimates
+positive in 23 of 24 index × response × specification cells). In the climate +
+canopy specification, pasture and water management are weakly positive for
+richness/Shannon (90% CrI sometimes excludes zero); this attenuates toward zero
+under the `Ecoregion` specification and whenever precipitation is well
+controlled, so at least part of it is precipitation confounding. Land use and
+"all practices" (the `Ecoregion`-separable indices) are near-0 under both.
+Preliminary — 69 farms, several indices incomplete.
 
 **Canopy scale of effect (`06b_scale_of_effect.R`):** once elevation +
 precipitation are controlled for, bird richness is positively associated with
 woody-vegetation canopy cover in the surrounding landscape, peaking at ~8–9 km
 (a broad landscape signal, not a farm-scale one).
 
-The causal DAG (`dag.R`, from Aaron's hand-drawn version) gives a minimal
-adjustment set of {climate, landscape forest cover, NumPC, observer/season/year}
-— i.e. the **climate spec is the DAG-sufficient primary** (climate + canopy +
-sampling), and `Ecoregion` is redundant given those. The `ecoregion` spec is a
-robustness check (the 5-level factor proxying climate, ~80 % R²). Habitat count
-is a *sampling* covariate (number of habitat types surveyed), not a mediator.
-Landscape forest cover (10 km canopy) is a precision covariate / regional-backdoor
-proxy — not a farmer-values backdoor (no single farmer moves a 10 km buffer); it
-is kept in both specs. `NumPC` is a genuine confounder via a latent farm-size
-path (bigger farms diversify more *and* get more point counts). Two latent paths
-stay unadjusted — farmer values acting through on-farm practices the four indices
-miss, and farm area acting on diversity directly (species–area) — so the result
-is "consistent with no effect", not "no effect".
+The causal DAG (`dag.R`, from Aaron's hand-drawn version) gives two valid
+adjustment sets: {climate, landscape forest cover, NumPC, observer/season/year,
+species pool} — the **climate specification**, which
+needs a species-pool term because `Ecoregion` → biogeographic history → species
+pool → bird diversity is otherwise an open backdoor — or {climate, `Ecoregion`,
+NumPC} — the **`Ecoregion` specification**, which closes that path directly and
+still has to proxy climate (~80 % R²). Report both. Habitat count is a *sampling*
+covariate, not a mediator. Landscape forest cover (10 km canopy) is a precision
+covariate / `Ecoregion`-backdoor proxy — not a farmer-values backdoor (no single
+farmer moves a 10 km buffer). `NumPC` is a genuine confounder via a latent
+farm-size path (bigger farms diversify more *and* get more point counts). Two
+latent paths stay unadjusted — farmer values acting through on-farm practices the
+four indices miss, and farm area acting on diversity directly (species–area).
 
 Done since: the Piedemonte-only cut (`04c`), the range-map species-pool test
-(`01b` + `04d` — adds nothing), and the specification checks (`04e`). Still open:
-a composition- or endemism-weighted species pool for the *biogeographic* residual;
-a single flexible precipitation term so the climate and ecoregion specs converge;
-farm-area and on-farm woody-cover covariates; LOO for the nuisance terms
-(deferred). See `Reanalysis_checklist.md` and `Project_notes.md` (local only).
+(`01b` + `04d` — adds nothing beyond elevation + precipitation), and the
+specification checks (`04e`). Still open: a composition- or endemism-weighted
+species pool for the *biogeographic* residual; a single flexible precipitation
+term so the two specifications converge; farm-area and on-farm woody-cover
+covariates; LOO for the nuisance terms (deferred). See `Reanalysis_checklist.md`
+and `Project_notes.md` (local only).
