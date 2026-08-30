@@ -24,14 +24,13 @@ editor:
 library(tidyverse)
 library(knitr)
 
-source("Scripts/05_farm_mgmt_plots.R")        # p_index_effects, p_bayes_r2
+source("Scripts/05_farm_mgmt_plots.R")             # p_index_effects, p_bayes_r2
 source("Scripts/05c_farm_mgmt_piedemonte_plot.R")  # p_pied_effects
-source("Scripts/05d_species_pool_plot.R")     # p_pool_forest, p_pool_varpart, pool_cor
+source("Scripts/05d_species_pool_plot.R")          # p_env_specs, p_pool_varpart, pool_cor
+source("Scripts/05e_doy_explainer.R")              # p_fit (fitted seasonal effect)
 bare <- function(p) p + labs(title = NULL, subtitle = NULL)
 
-mm     <- read_csv("Derived/Excels/Farm_mgmt_model_summaries.csv", show_col_types = FALSE) %>% filter(data_subset == "primary")
 soe    <- read_csv("Derived/Excels/Scale_effect_results.csv", show_col_types = FALSE)
-sens   <- read_csv("Derived/Excels/Precip_vs_elev_sensitivity.csv", show_col_types = FALSE)
 scheck <- read_csv("Derived/Excels/Spec_checks.csv", show_col_types = FALSE)
 
 hill_lab  <- c(richness = "Richness (q = 0)", shannon = "Shannon (q = 1)", simpson = "Simpson (q = 2)")
@@ -43,12 +42,16 @@ idx_prec_r <- map_dbl(names(index_lab)[-1], ~ cor(md[[.x]], md$Tot_prec_mean, us
   set_names(names(index_lab)[-1])
 ```
 
+Source code and data-processing pipeline:
+<https://github.com/LezzGitIt/Farm_diversity> (see `README.md` for the
+script run order; `Scripts/dag.R` for the assumed causal structure).
+
 # The question
 
 The Colombian Sustainable Cattle Ranching (SCR) programme introduced
 silvopasture and other land-management changes on thousands of farms.
-This analysis asks a narrower question: **do farms with more
-*diversified* management have more diverse bird communities?**
+This analysis asks the question: **do farms with more *diversified*
+management have more diverse bird communities?**
 
 It links two datasets produced independently:
 
@@ -67,10 +70,14 @@ assemblages.
 # Why this is hard: the confounding structure
 
 Bird diversity in this region is **mostly a between-ecoregion story** —
-the R² of `richness ~ Ecoregion` is ≈ 0.45, and elevation alone is ≈
-0.79. The five ecoregions differ in rainfall regime, elevation, forest
-cover and biogeographic history, and those differences dominate the
-diversity signal.
+the R² of `richness ~ Ecoregion` is $\approx 0.45$. And `Ecoregion` is a
+near-perfect stand-in for the environment: elevation and precipitation
+are each $\approx 0.82$ explained by which ecoregion a farm sits in
+(elevation on its own explains only $\approx 0.15$–$0.22$ of richness —
+the diversity signal is regional, not a simple elevational gradient).
+The five ecoregions differ in rainfall regime, elevation, forest cover
+and biogeographic history, and those differences dominate the diversity
+signal.
 
 The four management indices **split in two** with respect to region
 (`Scripts/03_exploratory.R`):
@@ -82,25 +89,32 @@ The four management indices **split in two** with respect to region
   varies by region.
 
 So any region-correlated environmental driver of bird diversity that
-also correlates with a management index is a **confounder**. The assumed
-causal structure is in `Scripts/dag.R` (Figure below): `Ecoregion` is a
-stand-in for **climate (elevation + precipitation), landscape forest
-cover, and the regional species pool** — and the identification strategy
-is to adjust *those mechanisms* rather than the categorical label, so
-the label does not also soak up non-confounding region–management
-structure.
+also correlates with a management index is a confounder. The assumed
+causal structure is in `Scripts/dag.R` (@fig-dag): `Ecoregion` is a
+stand-in for climate (elevation + precipitation), landscape forest
+cover, the regional species pool, and, importantly, also for some farm
+management practices (particularly water and pasture management). The
+identification strategy is to decompose the ecoregion category into the
+underlying *mechanisms* — assess the effect of farm management while
+controlling for climate, landscape forest cover, and the regional
+species pool.
+
+![Assumed causal DAG behind the analysis (`Scripts/dag.R`). Adjusting for
+climate, landscape forest cover and the sampling covariates blocks the
+ecoregion backdoors; farmer values and farm size stay
+unobserved.](/Figures/DAG.png){#fig-dag width=100%}
 
 The practical obstacle is **collinearity**: elevation, precipitation,
-canopy cover, ecoregion and the region-bound indices are all entangled,
-so the mechanisms cannot be separated cleanly.
+canopy cover, and the farm management practices are all highly
+structured by ecoregion.
 
 # The modelling approach
 
 `Scripts/04_farm_mgmt_mod.R` — Bayesian hierarchical regression, one
-index at a time:
+diversification index at a time:
 
 ```         
-log(diversity) | resp_se(se, sigma = TRUE) ~ index_z + <environment> +
+log(diversity) | resp_se(se, sigma = TRUE) ~ diversification_index_z + <environment> +
     log(Num_pc)_z + Num_hab_z + doy_sin + doy_cos + (1 | farm) + (1 | collector-year)
 ```
 
@@ -108,9 +122,8 @@ log(diversity) | resp_se(se, sigma = TRUE) ~ index_z + <environment> +
   coverage-based standard error into the response.
 - **Two environmental-adjustment versions** (`Scripts/dag.R`):
   *climate + canopy* — elevation and precipitation each as *x + x²*,
-  plus surrounding 10 km canopy cover (the DAG-sufficient set, primary);
-  *Ecoregion + canopy* — the 5-level factor as a coarse proxy
-  (robustness check).
+  plus surrounding 10 km canopy cover; *Ecoregion + canopy* — the
+  5-level factor as a coarse proxy (robustness check).
 - Sampling controls throughout: survey effort `log(Num_pc)`, number of
   habitat types surveyed `Num_hab` (2013 / 2016-17 surveys were
   forest-only, 2019+ spanned the land-use gradient), cyclic day-of-year,
@@ -118,12 +131,26 @@ log(diversity) | resp_se(se, sigma = TRUE) ~ index_z + <environment> +
 - A **no-index baseline** per response, so the variance an index *adds*
   is visible.
 - **Primary analysis**: assemblages whose point counts average \< 300 m
-  from the farm (the rest sampled a neighbouring landholding); the full
-  set is a sensitivity.
+  from the farm; the full set is a sensitivity analysis.
 
-Two extensions: a **Piedemonte-only** cut (`Scripts/04c_...`) that holds
-region fixed, and a **canopy scale-of-effect** analysis
-(`Scripts/06b_...`).
+Two extensions: a **Piedemonte-only** cut (`Scripts/04c_...`) that
+examines diversification just within the Piedemonte region, and a
+**canopy scale-of-effect** analysis (`Scripts/06b_...`).
+
+The cyclic day-of-year term deserves a note, since the surveys span the
+calendar: `doy_sin` + `doy_cos` together fit one smooth annual sine wave
+of any amplitude and phase, with no discontinuity at year-end. Fitted on
+the no-index Shannon baseline it is a $\approx 21\%$ peak-to-mean swing,
+highest in the Sept–Oct migrant-arrival window (@fig-doy) — real enough
+to be worth removing before asking about management.
+
+```{r}
+#| label: fig-doy
+#| fig-cap: "Fitted seasonal (day-of-year) multiplier on diversity, no-index Shannon baseline. Shaded = Nearctic-migrant season; ticks = the assemblages' mean survey days."
+#| fig-width: 9
+#| fig-height: 3.4
+p_fit + labs(title = NULL)
+```
 
 # Preliminary results
 
@@ -131,119 +158,96 @@ region fixed, and a **canopy scale-of-effect** analysis
 
 ```{r}
 #| label: fig-effects
+#| fig-cap: "Standardized effect of a 1-SD increase in each diversification index on log bird diversity (posterior median, 90% CrI), primary analysis. Purple = climate + canopy spec, green = Ecoregion + canopy spec."
 #| fig-width: 9
 #| fig-height: 4
 bare(p_index_effects)
 ```
 
-```{r}
-#| label: tbl-focal
-mm %>%
-  filter(term == "focal_z", spec %in% c("climate", "ecoregion")) %>%
-  mutate(cell = sprintf("%+.3f [%+.3f, %+.3f]", estimate, conf_low, conf_high),
-         spec = recode(spec, climate = "Climate + canopy", ecoregion = "Ecoregion + canopy"),
-         hill = recode(hill, !!!hill_lab), index = recode(index, !!!index_lab)) %>%
-  select(hill, index, spec, cell) %>%
-  pivot_wider(names_from = spec, values_from = cell) %>%
-  arrange(hill, index) %>%
-  kable(caption = "Standardized effect of a 1-SD increase in each index on log diversity: posterior median [90% CrI], primary analysis.")
-```
-
 Under the **Ecoregion** version every index effect is indistinguishable
-from zero. Under the **climate** version, land use and all-practices are
-also ≈ 0; **pasture and water management are weakly positive** (\~+0.07
-to +0.08 for richness and Shannon, credible interval sometimes excluding
-zero). The baseline and index R² are close throughout — the indices add
-essentially nothing (@fig-r2).
+from zero (@fig-effects). Under the **climate** version, land use and
+all-practices are also $\approx 0$; **pasture and water management are
+weakly positive** ($\approx +0.07$ to $+0.08$ for richness and Shannon,
+credible interval sometimes excluding zero). The baseline and index R²
+are close throughout — the indices add essentially nothing (@fig-r2).
 
 ```{r}
 #| label: fig-r2
+#| fig-cap: "Bayesian R² of the no-index baseline vs the model with each diversification index added (primary analysis, both specs). Adding an index barely moves explained variance."
 #| fig-width: 9
 #| fig-height: 4
 bare(p_bayes_r2)
+```
+
+## The species pool is structured by elevation and precipitation
+
+Differences in the diversity estimates could partly reflect differences
+in the regional species pool ("how many species could occur here?"). To
+check this, `Scripts/01b_species_pool.R` builds a per-farm **potential
+species pool** (`spp_pool`): the number of bird species whose Ayerbe
+Colombian range polygon contains the farm **and** whose published
+elevational range spans the farm's elevation. Elevational limits come
+mostly from Suárez-Castro et al. (2024), with some ranges digitised
+manually from field guides (Ayerbe-Quiñones 2018, Hilty) — 87 % of the
+1 788 range-map species; the rest (Nearctic migrants, seabirds) pass
+unfiltered.
+
+But `spp_pool` is itself a composite of the two environmental gradients:
+`spp_pool ~ poly(Elev, 2)` gives R² $\approx 0.49$,
+`~ poly(precip, 2)` R² $\approx 0.52$, and both together R²
+$\approx 0.87$, leaving only $\approx 13\%$ unexplained (@fig-pool-varpart).
+Its own association with diversity is an **elevation** effect (strongly
+positive alone, $\approx 0$ once `Elev²` is in the model), and adding it
+to the management model does not move the focal coefficients
+(@fig-env-specs). So a range-map species-pool count carries no
+information beyond elevation + precipitation. A composition- or
+endemism-weighted pool, or an eBird-based measure, is the next thing to
+try if the aim is a *biogeographic* residual.
+
+```{r}
+#| label: fig-pool-varpart
+#| fig-cap: "Variance of the per-farm range-map species pool partitioned onto the elevation and precipitation gradients; together they explain about 87 percent."
+#| fig-width: 9
+#| fig-height: 2.6
+p_pool_varpart + labs(title = NULL)
 ```
 
 ## The pasture / water signal is precipitation confounding
 
 The two indices that show anything are exactly the two most correlated
 with region — and specifically with rainfall. At the farm level,
-**`Pasture_mgmt_div` correlates with mean annual precipitation at r =
-`r sprintf("%.2f", idx_prec_r["Pasture_mgmt_div"])`** (water management
-r = `r sprintf("%.2f", idx_prec_r["Water_mgmt_div"])`; land use and
-all-practices are slightly *negative*). Wetter farms diversify pasture
-management more, and precipitation is a primary driver of tropical bird
-diversity — a textbook confounding fork.
+**`Pasture_mgmt_div` correlates with mean annual precipitation at
+r = `r sprintf("%.2f", idx_prec_r["Pasture_mgmt_div"])`** (water
+management r = `r sprintf("%.2f", idx_prec_r["Water_mgmt_div"])`; land
+use and all-practices are slightly *negative*). Wetter farms have higher
+pasture-management diversification scores, and precipitation is a
+primary driver of tropical bird diversity — a confounding fork.
 
-`Scripts/04d_species_pool_test.R` and a follow-up sensitivity fit the
-model with the environmental term specified several ways. The pasture /
-water coefficient tracks **how completely precipitation is adjusted
-for** — it is largest when elevation is co-adjusted (the two collinear
-axes trade off) and smallest when precipitation is the sole
-environmental term:
-
-```{r}
-#| label: tbl-sens
-sens %>%
-  select(index, hill, block, focal) %>%
-  kable(col.names = c("Index", "Response", "Environmental block", "Focal coefficient"),
-        caption = "Focal coefficient (median [95% CrI]) with the environmental term specified four ways. It is ~+0.08 whenever elevation is co-adjusted (the two collinear terms trade off, so precipitation removes only part of the confound) and ~+0.03-0.04 (CrI includes 0) whenever precipitation is the sole or dominant environmental term. Spline vs quadratic makes no difference.")
-```
+`Scripts/04d_species_pool_test.R` refits the model with the
+environmental term specified many ways: species pool, elevation² and
+precipitation² in every combination that never uses all three (they are
+collinear), plus precipitation as a quadratic vs a spline, with and
+without elevation co-adjusted. The pasture / water coefficient tracks
+**how completely precipitation is adjusted for** (@fig-env-specs) — it
+is $\approx +0.08$ to $+0.10$ whenever elevation competes with
+precipitation for the shared variance (so precipitation only partly
+removes the confound), and falls to $\approx +0.03$ to $+0.05$ with the
+credible interval spanning zero whenever precipitation is the sole or
+dominant environmental term. Quadratic vs spline makes no difference.
 
 ```{r}
-#| label: fig-pool-forest
+#| label: fig-env-specs
+#| fig-cap: "Management-index coefficient (pasture, water) across every environmental specification, labelled by the variables it contains and ordered by how completely precipitation is controlled. 10 km canopy and the sampling controls are held fixed throughout. The coefficient shrinks toward zero as precipitation adjustment improves."
 #| fig-width: 9
 #| fig-height: 6
-bare(p_pool_forest)
+bare(p_env_specs)
 ```
-
-*Reading @fig-pool-forest:* four environmental blocks, none combining
-all three of `spp_pool`, `Elev²`, `precip²` (they are collinear). The
-management coefficient (green) is largest in the block where
-precipitation is least controlled (`pool_elev`) and smallest where it is
-most controlled (`pool_precip`). `spp_pool` itself (purple) is defined
-below.
-
-## The species pool does not disentangle it
-
-`Scripts/01b_species_pool.R` builds a per-farm **potential species
-pool** (`spp_pool`): the number of bird species whose Ayerbe Colombian
-range polygon contains the farm **and** whose elevational limits span
-the farm's elevation ± 250 m. Elevational limits come from Suárez-Castro
-et al. (2024) backfilled with the manual field-guide digitisations in
-`03_FT_elev.R` (Ayerbe-Quiñones 2018, Hilty) — 87 % of the 1 788
-range-map species; the rest (Nearctic migrants, seabirds) pass
-unfiltered. This is external to the point-count data, so it is a genuine
-"how many species could occur here", not a circular re-measurement.
-
-But `spp_pool` is itself a composite of the two environmental gradients
-— `spp_pool ~ poly(Elev, 2)` gives R² ≈ 0.43, `~ poly(precip, 2)` R² ≈
-0.63, and both together R² ≈ 0.89, leaving only \~11 % unexplained:
-
-```{r}
-#| label: fig-pool-varpart
-#| fig-width: 9
-#| fig-height: 2.6
-p_pool_varpart + labs(title = NULL)
-```
-
-```{r}
-#| label: tbl-pool-cor
-pool_cor %>% kable(col.names = c("Gradient", "correlation with spp_pool"),
-                   caption = "spp_pool tracks precipitation positively and elevation negatively (montane depauperation).")
-```
-
-Adding `spp_pool` to the model does not move the management coefficients
-(@fig-pool-forest, green points barely shift between `clim` and `pool`),
-and `spp_pool`'s own association with diversity is an **elevation**
-effect (strongly positive alone, \~0 once `Elev²` is in). So a range-map
-species-pool count adds no information beyond elevation + precipitation.
-A composition- or endemism-weighted pool, or an eBird-based measure,
-would be the next thing to try if the aim is a *biogeographic* residual.
 
 ## Holding region fixed: Piedemonte only
 
 ```{r}
 #| label: fig-pied
+#| fig-cap: "Piedemonte-only fits (`Scripts/04c`): standardized management-index effect on log diversity, region held fixed, elevation/precipitation/canopy replaced by their first PC. Primary (< 300 m) vs all assemblages. Every credible interval includes zero."
 #| fig-width: 9
 #| fig-height: 4
 bare(p_pied_effects)
@@ -251,13 +255,10 @@ bare(p_pied_effects)
 
 Restricting to the 25 Piedemonte farms (`Scripts/04c_...`), with the
 collinear elevation / precipitation / canopy replaced by their first
-principal component, still shows **no detectable management effect** —
-every credible interval includes zero. This is consistent with the
-confounding story rather than an independent confirmation: the principal
-component is only about one-third precipitation (it weights elevation,
-precipitation and canopy equally), so precipitation is weakly controlled
-here, and pasture / water sit at the same \~+0.06 as the
-weak-precipitation-control full models.
+principal component, still shows **no convincing management effect**.
+This is consistent with the confounding story: management is generally
+positive, especially pasture / water management, but every credible
+interval includes zero.
 
 ## A landscape-context effect: canopy cover scale of effect
 
@@ -282,13 +283,13 @@ soe %>%
 Three modelling choices were checked (`Scripts/04e_spec_checks.R`); none
 changes the conclusion.
 
-**`(1 | CollectorXyear)`** — the [dataset × year-group] random effect (8
-levels) is only partly confounded with `Ecoregion` (Cramér's V = 0.38;
-the three largest datasets each span 4–5 ecoregions). Its standard
-deviation is 0.18–0.31 on the log scale, so it captures real field-method
-differences among the six source datasets. Dropping it shifts every
-management coefficient by ≤ 0.02, on the full data and in Piedemonte
-alike — it is not doing region-confounding control.
+**`(1 | CollectorXyear)`** — the \[dataset × year-group\] random effect
+(8 levels) is only partly confounded with `Ecoregion` (Cramér's V =
+0.38; the three largest datasets each span 4–5 ecoregions). Its standard
+deviation is 0.18–0.31 on the log scale, so it captures real
+field-method differences among the six source datasets. Dropping it
+shifts every management coefficient by $\le 0.02$, on the full data and
+in Piedemonte alike — it is not doing region-confounding control.
 
 **`resp_se()`** — propagating the iNEXT standard errors makes the fit a
 precision-weighted regression. Dropping it (treating the point estimates
@@ -297,8 +298,27 @@ credible intervals, because the well-sampled assemblages — which show a
 weaker signal — then count for less. `resp_se` is both the honest and
 the conservative choice.
 
-**Distance-to-farm cutoff** — using all assemblages instead of the \< 300
-m primary set shifts the coefficients by ≤ 0.03, toward zero if anything.
+**Distance-to-farm cutoff** — for some assemblages the point counts
+average well off the nominal farm (@fig-dist): different sampling teams
+placed counts along access roads or on neighbouring land. The primary
+analysis keeps only assemblages whose counts average \< 300 m from the
+farm; using all assemblages instead shifts the coefficients by
+$\le 0.03$, toward zero if anything.
+
+```{r}
+#| label: fig-dist
+#| fig-cap: "Mean distance of an assemblage's point counts from its farm. Dashed line = the 300 m primary-analysis cutoff; the long right tail is dropped from the primary set."
+#| fig-width: 9
+#| fig-height: 2.8
+read_csv("Derived/Excels/Farm_mgmt_model_data.csv", show_col_types = FALSE) %>%
+  filter(Hill == "shannon", !is.na(dist_farm)) %>%
+  distinct(Assemblage, dist_farm) %>%
+  ggplot(aes(dist_farm)) +
+  geom_histogram(binwidth = 100, boundary = 0, fill = "grey70", colour = "white") +
+  geom_vline(xintercept = 300, linetype = "dashed", colour = "#d95f02") +
+  labs(x = "Mean distance of the point counts from the farm (m)", y = "Assemblages") +
+  theme_minimal(11)
+```
 
 ```{r}
 #| label: tbl-scheck
@@ -357,9 +377,9 @@ effect. Three things argue against that:
     negatively-correlated continuous terms; because they trade off,
     precipitation removes less of the pasture / water confound than it
     would alone. Drop the elevation term — or use the single flexible
-    `Ecoregion` factor — and precipitation absorbs the full confound: the
-    coefficient falls to \~0.04 with the credible interval spanning zero,
-    regardless of whether precipitation enters as a quadratic or a
+    `Ecoregion` factor — and precipitation absorbs the full confound:
+    the coefficient falls to \~0.04 with the credible interval spanning
+    zero, regardless of whether precipitation enters as a quadratic or a
     spline. So the `climate`–`ecoregion` gap is the parametric climate
     spec *under-adjusting* precipitation under collinearity, not the
     factor over-adjusting.
@@ -367,7 +387,7 @@ effect. Three things argue against that:
 **Caveat.** With everything this collinear, "legitimate adjustment" is
 an inference from the pattern, not a proof. Precipitation and "regional
 programme rollout" may themselves be confounded, so we cannot fully
-separate "wetter → more birds" from "wetter region → more
+separate "wetter, so more birds" from "wetter region, so more
 water-management promotion". But under either reading the direction is
 the same: the well-precipitation-adjusted near-zero estimate is the one
 to report, and the +0.08 is not a defensible management effect.
@@ -377,9 +397,9 @@ to report, and the +0.08 is not a defensible management effect.
 - **A better environmental term in the `climate` spec** — the parametric
   `Elev + Elev² + precip + precip²` under-controls precipitation because
   the two collinear axes trade off (§5.1). A single flexible term (an
-  `s(lat, long)` spatial spline, or dropping the elevation quadratic), or
-  simply taking the `Ecoregion`-factor result as primary, would close the
-  `climate`–`ecoregion` gap at \~0.
+  `s(lat, long)` spatial spline, or dropping the elevation quadratic),
+  or simply taking the `Ecoregion`-factor result as primary, would close
+  the `climate`–`ecoregion` gap at \~0.
 - **Other response axes** — functional or phylogenetic diversity, or
   species-of-conservation-concern subsets, may respond to management
   where taxonomic Hill numbers do not.
@@ -388,11 +408,103 @@ to report, and the +0.08 is not a defensible management effect.
   effect is worth chasing.
 - **Farm isolation** — `dist_predio_cercano` (distance to the nearest
   neighbouring property, from the MJE spreadsheet) is uncorrelated with
-  the point-count `Distancia_farm` (r ≈ 0), so it is a genuinely new
-  covariate: a candidate predictor and/or a spatial-autocorrelation
+  the point-count `Distancia_farm` ($r \approx 0$), so it is a genuinely
+  new covariate: a candidate predictor and/or a spatial-autocorrelation
   control.
 - **Manuscript framing** — the honest story is "farm-scale management
   diversification does not detectably raise bird taxonomic diversity
   once the environmental gradient is accounted for; surrounding
   landscape forest cover does" — reported with the collinearity and
   observational caveats.
+- Better understanding of iNEXT diversification indices - Consideration
+  of alternative cutoff values.
+
+# Appendix: methodological questions
+
+Six questions that came up while building the analysis, with the answers
+that shaped the current specification.
+
+## Is canopy cover "required by the DAG"?
+
+Not as a farmer-values backdoor — that was a scale mismatch. The canopy
+covariate is woody cover in a $\approx 10$ km buffer, set by topography,
+protected areas and hundreds of landholders; no single farmer's
+priorities move it. So there is no farmer-values-to-canopy arrow and
+canopy is not blocking a farmer-values path. What canopy legitimately
+does: (1) in the `climate` spec it blocks the regional backdoor
+FarmDiv \<- Ecoregion -\> LandForest -\> BirdDiv; (2) everywhere, it is a
+strong predictor of diversity, so it reduces residual variance. Under
+the `Ecoregion` spec it is not needed at all but is harmless and
+variance-reducing, so it stays in both. The genuine residual concern —
+bird-minded farmers doing *on-farm* things the four indices miss (snag
+retention, less pesticide, wider fencerows) — is a farm-scale path that
+canopy cannot proxy; it is left as an explicit unmeasured-confounder
+caveat in `Scripts/dag.R`.
+
+## Why is farm size in the DAG?
+
+Farm area (unmeasured) has three arrows. FarmSize -\> FarmDiv: a bigger
+farm has more room and more management units, so more opportunity to
+score high on indices that are partly counts of practices.
+FarmSize -\> NumPC: bigger farms get more point counts.
+FarmSize -\> BirdDiv: species–area — more area means larger populations,
+more interior habitat, proportionally less edge. Conditioning on
+`NumPC` (already in every model) closes the
+FarmDiv \<- FarmSize -\> NumPC -\> BirdDiv path — this is why `NumPC` is
+now a genuine confounder in the DAG's minimal adjustment set, not just a
+precision term. The direct FarmSize -\> BirdDiv path is **not** closed
+by anything in the model and would bias a true null upward. Measuring
+farm hectares would close it; it is on the re-analysis checklist.
+
+## `resp_se(se, sigma = TRUE)` vs `sigma = FALSE`
+
+With `sigma = TRUE` the total variance for assemblage *i* is
+$se_i^2 + \sigma^2$ — the known iNEXT bootstrap SE **plus** an estimated
+residual SD shared across rows. `sigma = FALSE` uses only $se_i^2$
+(pure inverse-variance / meta-analysis weighting), which assumes the
+known SEs are the whole error story. Refitting pasture × richness
+(climate primary) both ways: `TRUE` gives
+$+0.081\ [-0.002,\ 0.164]$, `FALSE` gives
+$+0.088\ [-0.007,\ 0.184]$ (a slightly larger point estimate and a
+$\approx 15\%$ wider interval). The `TRUE` model's estimated residual SD
+is $\approx 0.15$, larger than the mean known measurement error
+($\overline{se_{\log}} \approx 0.09$) — there is real
+assemblage-to-assemblage scatter beyond the bootstrap SE, so
+`sigma = TRUE` is the correct choice. (This is separate from the
+"drop `resp_se` entirely" check in §4.6, which also discards the known
+SEs and gives $\approx 25\%$ larger coefficients.)
+
+## Removing the $\pm 250$ m species-pool elevation buffer
+
+Done. A farm's elevation must now fall inside a species' published
+elevational range exactly. This keeps 96 % of the range-polygon hits
+(was 98 %); `spp_pool ~ climate` R² and the management coefficients in
+@fig-env-specs are unchanged.
+
+## What does it mean if Bayesian R² *decreases* when an index is added?
+
+Almost entirely a subset artifact, not a sign the index hurts. Bayesian
+R² is computed on the rows each model was fit on. The no-index baseline
+uses all assemblages with complete covariates ($n \approx 89$–$98$); the
+water- and pasture-management models drop farms missing those indices
+($n \approx 73$–$80$). Different data, so the R² values are not directly
+comparable — removing $\approx 20$ rows changes both the fitted-value
+variance and the residual variance. Two smaller contributors: the
+`normal(0, 0.75)` prior shrinks a near-zero coefficient toward 0, so an
+uninformative index adds almost nothing to explained variance; and for
+Shannon/Simpson the water/pasture *subset* actually has a **higher** R²
+than the baseline, only richness is slightly lower — that inconsistency
+across responses is the signature of subset noise. A clean comparison
+would refit the baseline on the matched $n$ (backlog).
+
+## Would LOO for the nuisance terms change anything now?
+
+Not at this stage. With $n \approx 73$–$98$ and the regularising
+`normal(0, 0.75)` prior, `Scripts/04e_spec_checks.R` already shows that
+dropping a nuisance block (the CollectorXyear RE, and by extension the
+day-of-year terms) moves the focal coefficient by $\le 0.02$. LOO would
+formalise "keep them" without changing the conclusion, and LOO with this
+many single-assemblage farms and the measurement-error structure needs
+care (Pareto-$k$ diagnostics, possibly moment-matching). It is worth
+doing when the specifications are being finalised for the manuscript on
+a larger dataset, not now.
