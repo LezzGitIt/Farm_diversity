@@ -123,14 +123,22 @@ log(diversity) | resp_se(se, sigma = TRUE) ~ diversification_index_z + <environm
     log(Num_pc)_z + Num_hab_z + doy_sin + doy_cos + (1 | farm) + (1 | collector-year)
 ```
 
-- **Likelihood.** The response is not a raw count — it is an iNEXT
-  *estimate* of a Hill number (coverage-standardised richness for q = 0,
-  asymptotic diversity for q = 1 / 2), a continuous positive quantity
-  with its own standard error. So the model is Gaussian on the log of
-  that estimate (equivalently, lognormal for the diversity), not a
-  Poisson or negative-binomial count model. `resp_se(se, sigma = TRUE)`
-  makes the total variance for each assemblage the known iNEXT standard
-  error plus an estimated residual SD — see the appendix.
+- **Likelihood.** The response is not a raw count. *Observed* richness
+  (q = 0) is an integer, but the model uses the iNEXT *estimate* —
+  coverage-standardised richness for q = 0, asymptotic Hill-Shannon /
+  Hill-Simpson for q = 1 / 2 — a continuous positive quantity read off a
+  rarefaction/extrapolation curve, each with its own bootstrap standard
+  error. So the likelihood is Gaussian, not a count model. It is fit on
+  the **log** of the estimate for two reasons: a management or climate
+  effect is naturally *multiplicative* (a proportional change in
+  diversity), and iNEXT's standard error scales with the estimate, so
+  `se_log = se / estimate` is roughly constant — the log scale is where
+  `resp_se(se, sigma = TRUE)` behaves. It is *not* that the raw estimates
+  are badly skewed: they are close to symmetric, and logging mildly
+  over-corrects (@fig-loglik). The Gaussian likelihood is therefore an
+  approximation on either scale; `resp_se(se, sigma = TRUE)` sets each
+  assemblage's total variance to the known iNEXT error plus an estimated
+  residual SD (appendix).
 - **Two environmental-adjustment specifications** (`Scripts/dag.R`):
   *climate + canopy* — elevation and precipitation each as *x + x²*,
   plus surrounding 10 km canopy cover; *`Ecoregion` + canopy* — the
@@ -145,6 +153,44 @@ log(diversity) | resp_se(se, sigma = TRUE) ~ diversification_index_z + <environm
   is visible.
 - **Primary analysis**: assemblages whose point counts average \< 300 m
   from the farm; the full set is a sensitivity analysis.
+
+```{r}
+#| label: fig-loglik
+#| fig-cap: "Distribution of the assemblage diversity estimates the models are fit to. (A) Natural scale: strictly positive, only mildly right-skewed (sample skewness about 0.1 for q = 0 and q = 1, 0.4 for q = 2). (B) Log scale, with a normal matched to each response's log mean and SD (dashed): logging mildly over-corrects to a slight left skew. The two humps are the between-`Ecoregion` mixture, which the models condition on. The log scale is used for multiplicative effects and the error model, not to fix skew."
+#| fig-width: 9
+#| fig-height: 3.6
+resp_dist <- read_csv("Derived/Excels/Farm_mgmt_model_data.csv", show_col_types = FALSE) %>%
+  distinct(Assemblage, Hill, response) %>%
+  filter(!is.na(response), response > 0) %>%
+  mutate(q = factor(recode(Hill, !!!hill_lab), levels = unname(hill_lab)))
+
+pal_q <- c("Richness (q = 0)" = "#1b7837", "Shannon (q = 1)" = "#762a83", "Simpson (q = 2)" = "#d95f02")
+
+norm_ref <- resp_dist %>%
+  reframe(x = seq(min(log(response)), max(log(response)), length.out = 200),
+          d = dnorm(x, mean(log(response)), sd(log(response))), .by = q)
+
+p_raw <- ggplot(resp_dist, aes(response, colour = q, fill = q)) +
+  geom_density(alpha = 0.12, linewidth = 0.8) +
+  scale_colour_manual(values = pal_q, name = NULL, aesthetics = c("colour", "fill")) +
+  labs(x = "Diversity estimate (effective no. of species)", y = "Density", title = "(A) Natural scale") +
+  cowplot::theme_minimal_grid(11)
+
+p_log <- ggplot(resp_dist, aes(log(response))) +
+  geom_density(aes(colour = q, fill = q), alpha = 0.12, linewidth = 0.8) +
+  geom_line(data = norm_ref, aes(x, d, group = q), linetype = "dashed", colour = "grey35") +
+  scale_colour_manual(values = pal_q, name = NULL, aesthetics = c("colour", "fill")) +
+  labs(x = "log(diversity estimate)", y = "Density", title = "(B) Log scale (dashed = matched normal)") +
+  cowplot::theme_minimal_grid(11)
+
+loglik_leg <- cowplot::get_plot_component(p_raw + theme(legend.position = "bottom"),
+                                          "guide-box-bottom", return_all = FALSE)
+cowplot::plot_grid(
+  cowplot::plot_grid(p_raw + theme(legend.position = "none"),
+                     p_log + theme(legend.position = "none"), ncol = 2),
+  loglik_leg, ncol = 1, rel_heights = c(1, 0.12)
+)
+```
 
 Two extensions: a **Piedemonte-only** cut (`Scripts/04c_...`) that
 examines diversification just within the Piedemonte ecoregion, and a
