@@ -65,9 +65,9 @@ p_env_specs <- coefs %>%
   geom_vline(xintercept = 0, linetype = "dashed", colour = "grey60") +
   geom_pointrange(aes(xmin = lo, xmax = hi), colour = "#1b7837", fatten = 2) +
   facet_grid(Index ~ Hill) +
-  labs(x = "Standardized effect of the management index on log diversity (posterior median, 95% CrI)", y = NULL,
+  labs(x = "Standardized effect of the diversification index on log diversity (posterior median, 95% CrI)", y = NULL,
        title = "The pasture / water coefficient tracks how completely precipitation is adjusted",
-       subtitle = "Environmental term varied; 10 km canopy + sampling controls held fixed in every spec.\nTop rows: elevation competes with precipitation, or precipitation enters only weakly. Bottom rows: precipitation is the sole / dominant term.") +
+       subtitle = "Environmental term varied; 10 km landscape forest cover + sampling controls held fixed in every spec.\nTop rows: elevation competes with precipitation, or precipitation enters only weakly. Bottom rows: precipitation is the sole / dominant term.") +
   theme(axis.text.y = element_text(size = 8.5), plot.subtitle = element_text(size = 9.5))
 ggsave("Figures/Species_pool_forest.png", p_env_specs, width = 10, height = 6, bg = "white")
 print(p_env_specs)
@@ -102,7 +102,7 @@ p_pool_varpart <- ggplot(varpart, aes(value, "spp_pool", fill = component)) +
   scale_fill_manual(values = c("Unique to precipitation" = "#2166ac", "Unique to elevation" = "#b2182b",
                                "Shared elev + precip" = "#7f7f7f", "Unexplained" = "grey85"), name = NULL) +
   scale_x_continuous(labels = scales::percent, expand = expansion(0)) +
-  labs(x = sprintf("Variance of the range-map species pool (spp_pool) across the %d farms", nrow(pe)), y = NULL,
+  labs(x = sprintf("Variance of the species-pool count (spp_pool) across the %d farms", nrow(pe)), y = NULL,
        title = "spp_pool is a composite of the two environmental gradients",
        subtitle = sprintf("spp_pool ~ poly(Elev,2): R² = %.2f   |   ~ poly(precip,2): R² = %.2f   |   both: R² = %.2f", onlyE, onlyP, full)) +
   theme(legend.position = "bottom", axis.text.y = element_blank(), axis.ticks.y = element_blank()) +

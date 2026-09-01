@@ -2,13 +2,14 @@
 
 ### (a) the (1 | CollectorXyear) random effect -- CollectorXyear (dataset x year-group, 8 levels) is partly confounded with Ecoregion: 4 of 8 levels are 100% Piedemonte, though the 3 largest datasets (Cipav, Gaica 2013/14, Gaica 2016/17; 72 of 108 assemblages) span 4-5 ecoregions each (Cramer's V = 0.38). So the RE absorbs some region structure but is not equivalent to (1 | Ecoregion). Does dropping it change the management coefficients on the full 5-ecoregion data?
 ### (b) resp_se() -- the measurement-error response term. What happens if the iNEXT point estimates are used as-is, with no per-assemblage SE?
-### (c) response scale / likelihood -- the main models are Gaussian on log(diversity). The raw estimates are close to symmetric and logging mildly over-corrects (see qmd/Farm_mgmt_summary.qmd fig-loglik), so is the near-null result specific to the log scale? Refit pasture/water x richness/shannon (climate, < 300 m) as Gaussian-on-log, Student-t-on-log, and Gaussian-on-raw, all with resp_se, and compare the focal effect expressed as a % change in diversity per SD of the index.
+### (c) response scale / likelihood -- the main models are Gaussian on log(diversity). Scripts/04f_response_distribution.R establishes that the iNEXT SE grows as ~ sqrt(estimate), so sqrt(y) (not raw, not log) is the variance-stabilising scale and fits best; log is kept for multiplicative interpretation + positivity. Here: is the near-null focal effect specific to the scale? Refit pasture/water x richness/shannon (climate, < 300 m) on Gaussian {log, raw, sqrt} + Student-t log, all with resp_se, and compare the focal effect as a % change in diversity per SD of the index.
 
 ### Refits the climate and ecoregion primary models (< 300 m) for each index x {richness, shannon} under three variants: base / no CollectorXyear RE / no resp_se. Reads Scripts/04_farm_mgmt_mod.R's persisted frame. Outputs Derived/Excels/Spec_checks.csv and Derived/Excels/Likelihood_sensitivity.csv.
 
-### OUTCOME (2026-08-29):
+### OUTCOME (2026-08-29; part (c) updated 2026-08-30):
 ### (a) CollectorXyear RE sd is 0.18-0.31 (log scale) -- real batch/protocol structure, not negligible. But dropping the RE shifts the focal coefficients by <= 0.022 (mostly <= 0.01): pasture climate +0.080 -> +0.077, water climate +0.074 -> +0.080. So it is NOT acting like (1|Ecoregion) -- if it were absorbing region confounding, dropping it from the climate spec would inflate pasture/water, and it doesn't. It captures field-protocol differences among the 6 datasets, as intended. Keep it. (Also tested in Piedemonte, 04c -- same, <= 0.01.)
 ### (b) Dropping resp_se gives LARGER |focal| (mean 0.050 vs 0.040, ~25% bigger; pasture richness +0.080 -> +0.106) and WIDER CrIs (mean 0.174 vs 0.162). resp_se turns the fit into a precision-weighted regression -- the well-sampled (low-SE) assemblages get more influence, and they show a weaker management association than the noisy ones. So resp_se pulls the coefficients down and tightens them by extracting a cleaner signal from the precise points. It is both the honest choice (the iNEXT SEs are real) and the conservative one -- without it, pasture/water richness CrIs would just barely exclude zero.
+### (c) Same answer on every scale resp_se allows (pasture/water x richness/shannon, % change per +1 SD): Gaussian-on-log +6.7 to +8.5%, Student-t-on-log essentially identical, Gaussian-on-raw a little smaller (+5.4 to +6.4%), Gaussian-on-sqrt in between (+5.9 to +7.2%). Every CrI spans zero except water x richness on sqrt, which just barely excludes it ([+0.1, +13.3], vs Gaussian-log's [-0.1, +16.1]). So the small positive lean is not a log-scale artefact. sqrt fits the mean-variance structure best (04f) but the choice does not move the conclusion.
 
 # Setup ----
 library(tidyverse)
@@ -30,8 +31,11 @@ mod_priors <- c(
 
 Model_data <- read_csv("Derived/Excels/Farm_mgmt_model_data.csv", show_col_types = FALSE) %>%
   mutate(Id_gcs = as.character(Id_gcs),
-         doy_sin = sin(2 * pi * doy / 365), doy_cos = cos(2 * pi * doy / 365))
+         doy_sin = sin(2 * pi * doy / 365), doy_cos = cos(2 * pi * doy / 365),
+         ## sqrt-scale response and its delta-method SE (SE(sqrt X) ~= SE(X) / (2 sqrt X)) for part (c)
+         sqrt_response = sqrt(response), se_sqrt = response_se / (2 * sqrt(response)))
 
+## NOTE: not re-run since the 2026-08-31 spec change -- the primary `climate` block gained `pool_wes_z` and lost `Num_hab_z`, and the `ecoregion` block dropped `canopy_10k_z`. The RE / resp_se sensitivity conclusions are unaffected; update these blocks and re-run before citing the numbers.
 env_blocks <- c(
   climate   = "Elev_mean_z + I(Elev_mean_z^2) + Tot_prec_mean_z + I(Tot_prec_mean_z^2) + canopy_10k_z",
   ecoregion = "Ecoregion + canopy_10k_z"
@@ -125,7 +129,7 @@ summ %>% filter(variant %in% c("base", "no_resp_se")) %>%
 
 # (c) Response scale / likelihood family ----
 
-### Gaussian-on-log (the main model), Student-t-on-log (robust to the mild left skew of log diversity), Gaussian-on-raw (the raw estimates are closer to symmetric). All keep resp_se(., sigma = TRUE); resp_se only supports gaussian + student, which is why Gamma / skew-normal are not options here. Priors follow the response scale: log models keep the 04 priors; the raw model uses response-scale priors. The focal effect is reported as a % change in diversity per +1 SD of the index -- exp(b) - 1 for the log models, b / mean(response) for the raw model -- so the three are directly comparable.
+### The main model is Gaussian on log(diversity). Scripts/04f_response_distribution.R shows the iNEXT SE grows as ~ sqrt(estimate) (counting noise), so sqrt(y) -- not raw and not log -- is the variance-stabilising scale, and it fits best. This block confirms the focal effect is invariant to that choice. Refit pasture/water x richness/shannon (climate, < 300 m) on every scale resp_se allows -- Gaussian on {log, raw, sqrt} + Student-t on log -- all with resp_se(., sigma = TRUE) (resp_se supports only gaussian + student, so Gamma / skew-normal are out). Priors follow the scale. The effect is a % change in diversity per +1 SD of the index -- exp(b) - 1 (log), b / mean(y) (raw), 2 * mean(sqrt(y)) * b / mean(y) (sqrt, delta method) -- so all four are directly comparable.
 
 lik_indices <- c("Pasture_mgmt_div", "Water_mgmt_div")
 
@@ -136,9 +140,16 @@ lik_priors_raw <- c(
   prior(exponential(0.15), class = "sd"),
   prior(exponential(0.15), class = "sigma")
 )
+## sqrt(diversity) is ~ 3-8 effective species, so intercept ~ 5, and a full-SD effect is at most ~2
+lik_priors_sqrt <- c(
+  prior(student_t(3, 5, 4), class = "Intercept"),
+  prior(normal(0, 2), class = "b"),
+  prior(exponential(0.5), class = "sd"),
+  prior(exponential(0.5), class = "sigma")
+)
 
 lik_grid <- expand_grid(hill = c("richness", "shannon"), index = lik_indices,
-                        lik = c("gaussian_log", "student_log", "gaussian_raw")) %>%
+                        lik = c("gaussian_log", "student_log", "gaussian_raw", "gaussian_sqrt")) %>%
   mutate(key = paste("likcheck", hill, index, lik, sep = "__"))
 
 lik_rhs <- paste("focal_z +", env_blocks[["climate"]],
@@ -146,20 +157,28 @@ lik_rhs <- paste("focal_z +", env_blocks[["climate"]],
 
 lik_summ <- pmap_dfr(lik_grid, function(hill, index, lik, key) {
   df <- frame_for(hill, index, "climate")
-  raw <- lik == "gaussian_raw"
-  lhs <- if (raw) "response | resp_se(response_se, sigma = TRUE)" else "log_response | resp_se(se_log, sigma = TRUE)"
+  scale <- dplyr::case_when(lik == "gaussian_raw" ~ "raw",
+                            lik == "gaussian_sqrt" ~ "sqrt",
+                            TRUE ~ "log")
+  lhs <- switch(scale,
+                raw  = "response | resp_se(response_se, sigma = TRUE)",
+                sqrt = "sqrt_response | resp_se(se_sqrt, sigma = TRUE)",
+                log  = "log_response | resp_se(se_log, sigma = TRUE)")
   fam <- if (lik == "student_log") student() else gaussian()
-  f <- brm(bf(as.formula(paste(lhs, "~", lik_rhs))), data = df, family = fam,
-           prior = if (raw) lik_priors_raw else lik_priors_log,
+  pri <- switch(scale, raw = lik_priors_raw, sqrt = lik_priors_sqrt, log = lik_priors_log)
+  f <- brm(bf(as.formula(paste(lhs, "~", lik_rhs))), data = df, family = fam, prior = pri,
            chains = chains, iter = iter, warmup = warmup, seed = 1989,
            control = list(adapt_delta = adapt_delta), refresh = 0, silent = 2,
            file = sprintf("Derived/models/%s", key), file_refit = "on_change")
   b <- fixef(f)["focal_z", ]
-  to_pct <- function(x) if (raw) 100 * x / mean(df$response) else 100 * (exp(x) - 1)
+  to_pct <- switch(scale,
+                   raw  = function(x) 100 * x / mean(df$response),
+                   sqrt = function(x) 100 * 2 * mean(df$sqrt_response) * x / mean(df$response),
+                   log  = function(x) 100 * (exp(x) - 1))
   tibble(index = recode(index, Pasture_mgmt_div = "Pasture mgmt", Water_mgmt_div = "Water mgmt"),
          hill = recode(hill, richness = "Richness (q=0)", shannon = "Shannon (q=1)"),
          likelihood = recode(lik, gaussian_log = "Gaussian on log", student_log = "Student-t on log",
-                             gaussian_raw = "Gaussian on raw"),
+                             gaussian_raw = "Gaussian on raw", gaussian_sqrt = "Gaussian on sqrt"),
          pct_effect = sprintf("%+.1f%% [%+.1f, %+.1f]", to_pct(b["Estimate"]), to_pct(b["Q2.5"]), to_pct(b["Q97.5"])),
          pct_est = round(to_pct(b["Estimate"]), 1),
          max_rhat = round(max(rhat(f), na.rm = TRUE), 3))

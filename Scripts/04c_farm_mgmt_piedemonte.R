@@ -9,10 +9,13 @@
 ###   * All continuous predictors are re-standardised WITHIN the Piedemonte set, so a "1 SD" effect is 1 SD among Piedemonte farms.
 
 ### Model per fit (same measurement-error structure as 04):
-###   log(diversity) | resp_se(se_log, sigma = TRUE) ~ [focal_z +] env_pc1_z + Num_pc_log_z + Num_hab_z + doy_sin + doy_cos + <random effects>
-### Primary random effects: (1 | Id_gcs) + (1 | CollectorXyear). A sensitivity drops the CollectorXyear term -- all 8 collector-year batches are present within Piedemonte and the forest-only (2013 / 2016-17) vs land-use-gradient (2019+) sampling change is the main thing that grouping carries, so this checks whether it re-absorbs a management signal.
+###   log(diversity) | resp_se(se_log, sigma = TRUE) ~ [focal_z +] env_pc1_z [+ Num_pc_log_z, Cmax only] + doy_sin + doy_cos + <random effects>
+### The habitat-count term was dropped 2026-08-31 with the rest of the analysis (Scripts/dag.R "# Variables to consider"); the CollectorXyear RE (and its drop-RE sensitivity) already carries the forest-only vs land-use-gradient sampling change.
+### Primary random effects: (1 | Id_gcs) + (1 | CollectorXyear). A sensitivity drops the CollectorXyear term -- all 8 collector-year batches are present within Piedemonte and the forest-only (2013 / 2016-17) vs land-use-gradient (2019+) sampling change is the main thing that grouping carries (the habitat-count term that used to also carry it was dropped), so this checks whether it re-absorbs a management signal.
 
-### Reads Scripts/04_farm_mgmt_mod.R's persisted modelling frame (Farm_mgmt_model_data.csv). Run 04 first.
+### TWO RESPONSES, matching the primary design: the coverage/Cmax estimate (with Num_pc_log_z) and the point-count-standardised incidence estimate (Scripts/00 ESTIMATE A; no Num_pc term). Both are run for the primary (< 300 m) and full assemblage sets -- so the distance-cutoff sensitivity is covered for both responses. The drop-CollectorXyear-RE sensitivity is Cmax-only (per Aaron).
+
+### Reads Scripts/04_farm_mgmt_mod.R's persisted modelling frame (Farm_mgmt_model_data.csv) + the latest Tax_div_incidence_*.csv. Run 04 first.
 
 # Setup ----
 library(tidyverse)
@@ -70,8 +73,13 @@ Pied <- Pied %>%
   mutate(doy_sin = sin(2 * pi * doy / 365),
          doy_cos = cos(2 * pi * doy / 365))
 
+## Second response: the point-count-standardised incidence estimate (Scripts/00 ESTIMATE A), so the Piedemonte cut is run for both responses. Effort is already standardised in it, so its models drop Num_pc_log_z (as in Scripts/04g). The drop-RE / drop-resp_se variants are Cmax-only (per Aaron).
+Incidence <- read_csv(latest_file("Derived/Excels", "^Tax_div_incidence_.*\\.csv$"), show_col_types = FALSE) %>%
+  transmute(Assemblage, Hill, inc_log_response = log(qD), inc_se_log = qD_se / qD)
+Pied <- Pied %>% left_join(Incidence, by = c("Assemblage", "Hill"))
+
 ## re-standardise every continuous predictor within the Piedemonte set (1 SD = 1 SD among Piedemonte assemblages)
-predictors_to_scale <- c(div_indices, "env_pc1", "Num_pc_log", "Num_hab_num")
+predictors_to_scale <- c(div_indices, "env_pc1", "Num_pc_log")
 Pied <- Pied %>%
   mutate(across(all_of(predictors_to_scale), ~ as.numeric(scale(.x)), .names = "{.col}_z"))
 
@@ -85,18 +93,21 @@ responses <- sort(unique(Pied$Hill))
 re_terms <- c(full_re = "(1 | Id_gcs) + (1 | CollectorXyear)",
               no_collector = "(1 | Id_gcs)")
 
-formula_for <- function(index, re_spec) {
+formula_for <- function(index, re_spec, response_type) {
+  lhs <- if (response_type == "incidence") "inc_log_response | resp_se(inc_se_log, sigma = TRUE)"
+         else "log_response | resp_se(se_log, sigma = TRUE)"
   terms <- c(if (index != "baseline") "focal_z",
-             "env_pc1_z", "Num_pc_log_z", "Num_hab_num_z", "doy_sin", "doy_cos",
+             "env_pc1_z",
+             if (response_type == "cmax") "Num_pc_log_z",   # incidence already standardises point-count effort
+             "doy_sin", "doy_cos",
              re_terms[[re_spec]])
-  bf(as.formula(paste0("log_response | resp_se(se_log, sigma = TRUE) ~ ",
-                       paste(terms, collapse = " + "))))
+  bf(as.formula(paste0(lhs, " ~ ", paste(terms, collapse = " + "))))
 }
 
-frame_for <- function(hill, index, data_subset) {
-  df <- Pied %>%
-    filter(Hill == hill, !is.na(se_log), !is.na(env_pc1_z), !is.na(Num_pc_log_z),
-           !is.na(Num_hab_num_z), !is.na(doy_sin))
+frame_for <- function(hill, index, data_subset, response_type) {
+  df <- Pied %>% filter(Hill == hill, !is.na(env_pc1_z), !is.na(doy_sin))
+  df <- if (response_type == "incidence") df %>% filter(!is.na(inc_se_log))
+        else df %>% filter(!is.na(se_log), !is.na(Num_pc_log_z))
   if (data_subset == "primary") df <- df %>% filter(!is.na(dist_farm), dist_farm < dist_threshold)
   if (index != "baseline") {
     df <- df %>% mutate(focal_z = .data[[paste0(index, "_z")]]) %>% filter(!is.na(focal_z))
@@ -106,26 +117,27 @@ frame_for <- function(hill, index, data_subset) {
 
 # Fit the grid ----
 
-## primary  = < 300 m, both REs, baseline + 4 indices
-## sensitivity 1 = full assemblage set, both REs, index models
-## sensitivity 2 = < 300 m, no CollectorXyear RE, index models
+## Cmax response: primary (< 300 m, both REs, baseline + 4 indices), + full assemblage set, + no-CollectorXyear-RE sensitivity.
+## Incidence response: primary + full only (the distance-cutoff sensitivity for the second response); no drop-RE / drop-resp_se variants (per Aaron).
 fit_grid <- bind_rows(
-  expand_grid(hill = responses, index = c("baseline", div_indices), data_subset = "primary", re_spec = "full_re"),
-  expand_grid(hill = responses, index = div_indices,                data_subset = "full",    re_spec = "full_re"),
-  expand_grid(hill = responses, index = div_indices,                data_subset = "primary", re_spec = "no_collector")
+  expand_grid(hill = responses, index = c("baseline", div_indices), data_subset = "primary", re_spec = "full_re",     response_type = "cmax"),
+  expand_grid(hill = responses, index = div_indices,                data_subset = "full",    re_spec = "full_re",     response_type = "cmax"),
+  expand_grid(hill = responses, index = div_indices,                data_subset = "primary", re_spec = "no_collector", response_type = "cmax"),
+  expand_grid(hill = responses, index = c("baseline", div_indices), data_subset = "primary", re_spec = "full_re",     response_type = "incidence"),
+  expand_grid(hill = responses, index = div_indices,                data_subset = "full",    re_spec = "full_re",     response_type = "incidence")
 ) %>%
-  mutate(key = paste(hill, index, data_subset, re_spec, sep = "__"),
-         structure = paste(re_spec, if_else(index == "baseline", "baseline", "index"), sep = "__"))
+  mutate(key = paste(hill, index, data_subset, re_spec, response_type, sep = "__"),
+         structure = paste(re_spec, response_type, if_else(index == "baseline", "baseline", "index"), sep = "__"))
 
-fit_one <- function(hill, index, data_subset, re_spec, key, structure, base_fit) {
+fit_one <- function(hill, index, data_subset, re_spec, response_type, key, structure, base_fit) {
   ## "pied_" prefix (not "mod_") so Scripts/05_farm_mgmt_plots.R's mod_* glob ignores these
   file <- sprintf("Derived/models/pied_%s", key)
-  frame <- frame_for(hill, index, data_subset)
+  frame <- frame_for(hill, index, data_subset, response_type)
   common <- list(chains = chains, iter = iter, warmup = warmup, seed = 1989,
                  control = list(adapt_delta = adapt_delta), refresh = 0, silent = 2,
                  file = file, file_refit = "on_change")
   if (is.null(base_fit)) {
-    do.call(brm, c(list(formula = formula_for(index, re_spec), data = frame, prior = mod_priors), common))
+    do.call(brm, c(list(formula = formula_for(index, re_spec, response_type), data = frame, prior = mod_priors), common))
   } else {
     do.call(update, c(list(object = base_fit, newdata = frame, recompile = FALSE), common))
   }
@@ -139,7 +151,7 @@ for (i in seq_len(nrow(fit_grid))) {
   row <- as.list(fit_grid[i, ])
   message(sprintf("[%d/%d] %s", i, nrow(fit_grid), row$key))
   base <- base_by_structure[[row$structure]]
-  fit <- fit_one(row$hill, row$index, row$data_subset, row$re_spec, row$key, row$structure, base_fit = base)
+  fit <- fit_one(row$hill, row$index, row$data_subset, row$re_spec, row$response_type, row$key, row$structure, base_fit = base)
   if (is.null(base)) base_by_structure[[row$structure]] <- fit
   mod_fits[[row$key]] <- fit
 }
@@ -155,15 +167,16 @@ tidy_fixef <- function(fit) {
   )) %>% list_rbind()
 }
 
-Model_summaries <- pmap(fit_grid, function(hill, index, data_subset, re_spec, key, ...) {
+Model_summaries <- pmap(fit_grid, function(hill, index, data_subset, re_spec, response_type, key, ...) {
   fit <- mod_fits[[key]]
   tidy_fixef(fit) %>%
     mutate(hill = hill, index = index, data_subset = data_subset, re_spec = re_spec,
+           response_type = response_type,
            n_obs = nobs(fit), n_farm = length(unique(fit$data$Id_gcs)),
            bayes_R2 = bayes_R2(fit)[, "Estimate"],
            max_rhat = round(max(rhat(fit), na.rm = TRUE), 3),
            n_divergent = sum(subset(nuts_params(fit), Parameter == "divergent__")$Value)) %>%
-    relocate(hill, index, data_subset, re_spec)
+    relocate(hill, index, data_subset, re_spec, response_type)
 }) %>%
   list_rbind() %>%
   mutate(across(c(estimate, conf_low, conf_high, p_direction_pos, bayes_R2), ~ round(.x, 4)))
@@ -176,33 +189,39 @@ cat("\n== Piedemonte-only farm-management models ==\n")
 cat(sprintf("env_pc1: %.0f%% of elev/precip/canopy joint variance; loadings %s\n",
             100 * pc1_var, paste(sprintf("%s %.2f", env_vars, env_pca$rotation[, "PC1"]), collapse = " ")))
 
-cat("\nFocal index coefficient (focal_z), primary analysis (< ", dist_threshold, " m, both REs)\n", sep = "")
+cat("\nFocal index coefficient (focal_z), primary analysis (< ", dist_threshold, " m, both REs), by response\n", sep = "")
 Model_summaries %>%
   filter(term == "focal_z", data_subset == "primary", re_spec == "full_re") %>%
-  select(hill, index, estimate, conf_low, conf_high, p_direction_pos, n_obs, n_farm) %>%
-  arrange(hill, index) %>%
+  select(response_type, hill, index, estimate, conf_low, conf_high, p_direction_pos, n_obs, n_farm) %>%
+  arrange(response_type, hill, index) %>%
   print(n = Inf)
 
-cat("\nBayesian R-squared: baseline vs + each index (primary)\n")
+cat("\nBayesian R-squared: baseline vs + each index (primary), by response\n")
 Model_summaries %>%
   filter(data_subset == "primary", re_spec == "full_re") %>%
-  distinct(hill, index, bayes_R2) %>%
+  distinct(response_type, hill, index, bayes_R2) %>%
   pivot_wider(names_from = index, values_from = bayes_R2) %>%
+  arrange(response_type, hill) %>%
   print(n = Inf)
 
-cat("\nSensitivity: focal_z across the three fits (primary / full set / no-collector RE)\n")
+cat("\nDistance-cutoff sensitivity: focal_z, primary (< 300 m) vs full set, both responses\n")
 Model_summaries %>%
-  filter(term == "focal_z") %>%
-  mutate(fit = case_when(data_subset == "full" ~ "full_set",
-                         re_spec == "no_collector" ~ "no_collector_re",
-                         TRUE ~ "primary")) %>%
-  select(hill, index, fit, estimate, conf_low, conf_high) %>%
-  pivot_wider(names_from = fit, values_from = c(estimate, conf_low, conf_high)) %>%
+  filter(term == "focal_z", re_spec == "full_re") %>%
+  select(response_type, hill, index, data_subset, estimate, conf_low, conf_high) %>%
+  pivot_wider(names_from = data_subset, values_from = c(estimate, conf_low, conf_high)) %>%
+  arrange(response_type, hill, index) %>%
+  print(n = Inf)
+
+cat("\nCmax-only: focal_z, primary vs no-CollectorXyear-RE\n")
+Model_summaries %>%
+  filter(term == "focal_z", response_type == "cmax", data_subset == "primary") %>%
+  select(hill, index, re_spec, estimate, conf_low, conf_high) %>%
+  pivot_wider(names_from = re_spec, values_from = c(estimate, conf_low, conf_high)) %>%
   arrange(hill, index) %>%
   print(n = Inf)
 
 cat("\nConvergence (fits with max R-hat > 1.01 or any divergence)\n")
 Model_summaries %>%
-  distinct(hill, index, data_subset, re_spec, max_rhat, n_divergent) %>%
+  distinct(response_type, hill, index, data_subset, re_spec, max_rhat, n_divergent) %>%
   filter(max_rhat > 1.01 | n_divergent > 0) %>%
   print(n = Inf)

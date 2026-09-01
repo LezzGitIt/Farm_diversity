@@ -5,9 +5,9 @@
 ### For every (response x region-adjustment) a **no-index baseline** is fitted alongside the four index models, so the variance the indices add can be read against the variance region + sampling already explain (`bayes_R2`).
 
 ### Region adjustment, two model versions per fit (see Scripts/dag.R for the causal rationale):
-###   * "climate" -- PRIMARY. The DAG-sufficient set: farm elevation + precipitation (each as x + x^2) + surrounding 10 km canopy cover. Adjusts the mechanisms Ecoregion stands for without the 5-level factor soaking up management variation.
-###   * "ecoregion" -- ROBUSTNESS. Ecoregion as a 5-level fixed effect + canopy. The factor is a coarse proxy for climate (R^2 ~ 0.8) and the only handle on the regional species pool the climate version misses; it also over-adjusts on any region-correlated management variation, so it brackets rather than replaces the primary.
-### Both versions carry the sampling covariates below, including Num.hab (number of habitat types surveyed -- a sampling-scope control: 2013 & 2016/17 surveys were forest-only, 2019+ spanned the land-use gradient).
+###   * "climate" -- PRIMARY. The DAG-sufficient set (adjustment set 1): farm elevation + precipitation (each as x + x^2) + surrounding 10 km canopy cover + the range-rarity-weighted regional species pool (pool_wes, Scripts/01b). The pool term blocks the Ecoregion -> biogeographic history -> species pool -> diversity backdoor the bare climate axes leave open. Adjusts the mechanisms Ecoregion stands for without the 5-level factor soaking up management variation.
+###   * "ecoregion" -- ROBUSTNESS. Ecoregion as a 5-level fixed effect, ALONE (adjustment set 2 = {Ecoregion} exactly; canopy dropped 2026-08-31, it was pure precision here). The factor closes the LandForest and species-pool backdoors directly, so it carries neither a landscape-forest nor a pool term; it still proxies climate (R^2 ~ 0.8) and over-adjusts on any region-correlated management variation, so it brackets rather than replaces the primary.
+### Both versions carry the sampling covariates below: survey effort (log Num_pc), cyclic day of year, and the farm / collector-year random effects. The habitat-count term (Num.hab) was dropped 2026-08-31 -- it is outcome-side only (not in either adjustment set) and its coefficient was ~0 in every fit; the forest-only early surveys (2013 / 2016-17) are carried by the CollectorXyear RE. See Scripts/dag.R "# Variables to consider".
 
 ### Responses (all log-transformed, modelled with `resp_se(se, sigma = TRUE)`):
 ###   * richness  -- q = 0 non-asymptotic `No_Asy_TD` at Cmax + its coverage-based SE (from the coverage65 export)
@@ -16,7 +16,7 @@
 ### q = 1 / q = 2 use the asymptotic estimate because those profiles asymptote; q = 0 does not, so it uses the coverage-standardised estimate.
 
 ### Model per fit:
-###   log(response) | resp_se(se_log, sigma = TRUE) ~ [index_z +] <region adjustment> + Num_pc_log_z + Num_hab_z + doy_sin + doy_cos + (1 | Id_gcs) + (1 | CollectorXyear)
+###   log(response) | resp_se(se_log, sigma = TRUE) ~ [index_z +] <region adjustment> + Num_pc_log_z + doy_sin + doy_cos + (1 | Id_gcs) + (1 | CollectorXyear)
 ### `Id_gcs` is nested in Ecoregion automatically. `CollectorXyear` is the [dataset x year-group] batch (field protocol + which farms + which habitats surveyed). `doy_sin` / `doy_cos` are a cyclic term on the assemblage's mean day of year -- a control for the Nearctic migrant influx (Oct-Mar). Fixed `Year` is omitted (folded into CollectorXyear).
 
 ### PRIMARY analysis = assemblages whose point counts average < 300 m from the farm (`dist_threshold`); the full set is refit as a sensitivity for the index models. See Scripts/dag.R and Project_notes.md for the distance-cutoff decision.
@@ -39,22 +39,25 @@ set.seed(1989)
 # Modelling parameters ----
 
 chains <- 4
-iter <- 3000
-warmup <- 1000
-## 0.99 (not 0.97): the small-n ecoregion fits (5-level factor + canopy + sampling + 2 REs on ~75 rows) threw tens of divergences at 0.97
-adapt_delta <- 0.99
+## 4000 / 1500 (was 3000 / 1000): adding pool_wes_z to the climate spec puts three ~0.8-collinear terms (Elev, Elev^2, pool_wes) on ~80-90 rows, and a few richness fits sat at R-hat 1.02-1.03 at 3000
+iter <- 4000
+warmup <- 1500
+## 0.995 (was 0.99, was 0.97): the small-n ecoregion fits (5-level factor + canopy + sampling + 2 REs on ~75 rows) threw tens of divergences at 0.97; 0.99 left a couple of richness fits with a stray divergence after pool_wes was added
+adapt_delta <- 0.995
 
 div_indices <- c("Land_use_div", "Water_mgmt_div", "Pasture_mgmt_div", "All_practices_div")
 
-## Region-adjustment model versions (Scripts/dag.R). Both carry `canopy_10k_z` -- the
-## 10 km scale that best explains diversity (Scripts/06b_scale_of_effect.R) and, per the
-## DAG, a confounder to adjust (it blocks the unobserved farmer-values -> landscape-forest
-## backdoor), not just a precision term. `climate` is the DAG-sufficient primary; `ecoregion`
-## is the proxy robustness check.
+## Region-adjustment model versions (Scripts/dag.R). The climate spec carries
+## `canopy_10k_z` (10 km landscape forest cover, Scripts/06b) as an Ecoregion backdoor
+## proxy, plus `pool_wes_z` (the DAG's SpeciesPool term). The ecoregion spec is
+## `Ecoregion` ALONE: it is the exact minimal adjustment set 2 -- the factor closes the
+## LandForest and SpeciesPool backdoors itself, so neither canopy nor a pool term is
+## needed (canopy was dropped 2026-08-31; it was pure precision there). `climate` is the
+## DAG-sufficient primary (adjustment set 1); `ecoregion` is the proxy robustness check.
 specs <- tribble(
-  ~spec,        ~region_fixed,                                                                              ~role,
-  "climate",    "Elev_mean_z + I(Elev_mean_z^2) + Tot_prec_mean_z + I(Tot_prec_mean_z^2) + canopy_10k_z",    "primary",
-  "ecoregion",  "Ecoregion + canopy_10k_z",                                                                  "robustness"
+  ~spec,        ~region_fixed,                                                                                          ~role,
+  "climate",    "Elev_mean_z + I(Elev_mean_z^2) + Tot_prec_mean_z + I(Tot_prec_mean_z^2) + canopy_10k_z + pool_wes_z",   "primary",
+  "ecoregion",  "Ecoregion",                                                                                             "robustness"
 )
 
 # Load data ----
@@ -117,6 +120,11 @@ Canopy_10k <- read_csv("Data/Geospatial/Canopy_by_scale_assemblage.csv", show_co
   filter(radius_m == 10000) %>%
   transmute(Assemblage, canopy_10k = canopy_cover)
 
+## Range-rarity-weighted regional species pool (pool_wes = sum 1000 / sqrt(range); Scripts/01b_species_pool.R) -- the DAG's SpeciesPool term, joined by farm. Enters the CLIMATE spec only. Unlogged per Aaron (2026-08-31): unlogged pool_wes is ~r 0.81 with elevation, logged ~0.85; either way it is a joint-environmental adjustment, not a separately interpretable coefficient. All 69 matched farms have a value.
+Species_pool <- read_csv("Data/Farm_species_pool.csv", show_col_types = FALSE) %>%
+  mutate(Id_gcs = as.character(Id_gcs)) %>%
+  select(Id_gcs, pool_wes)
+
 # Build the modelling frame ----
 
 ## One row per [assemblage x response], with predictors, the log-scale response + SE, and the grouping factors
@@ -124,6 +132,7 @@ Model_data <- Tax_div_long %>%
   semi_join(Farm_level, by = "Id_gcs") %>%
   left_join(Assemblage_covs, by = "Assemblage") %>%
   left_join(Canopy_10k, by = "Assemblage") %>%
+  left_join(Species_pool, by = "Id_gcs") %>%
   left_join(
     Farm_level %>% select(Id_gcs, Ecoregion, all_of(div_indices),
                           Elev_mean, Avg_temp_mean, Tot_prec_mean),
@@ -141,9 +150,9 @@ Model_data <- Tax_div_long %>%
     doy_cos = cos(2 * pi * doy / 365)
   )
 
-## z-score continuous predictors across the modelling rows (per-response scaling would fragment the interpretation; the row set is near-identical across responses)
+## z-score continuous predictors across the modelling rows (per-response scaling would fragment the interpretation; the row set is near-identical across responses). Num_hab_num is scaled and carried in the persisted frame for the off-pipeline scripts (04d-04i), though it is no longer a term in this script's models.
 predictors_to_scale <- c(div_indices, "Elev_mean", "Avg_temp_mean", "Tot_prec_mean",
-                         "Num_pc_log", "Num_hab_num", "canopy_10k")
+                         "Num_pc_log", "Num_hab_num", "canopy_10k", "pool_wes")
 Model_data <- Model_data %>%
   mutate(across(all_of(predictors_to_scale), ~ as.numeric(scale(.x)), .names = "{.col}_z")) %>%
   rename(Num_hab_z = Num_hab_num_z)
@@ -166,11 +175,11 @@ mod_priors <- c(
 
 # Model formula + data frame for one fit ----
 
-## The focal index is carried in a generic column `focal_z`; index == "baseline" drops it. Num.hab is a standing sampling control in every model. Formulas with identical structure share a compiled Stan model.
+## The focal index is carried in a generic column `focal_z`; index == "baseline" drops it. Formulas with identical structure share a compiled Stan model.
 formula_for <- function(index, region_fixed) {
   terms <- c(if (index != "baseline") "focal_z",
              region_fixed,
-             "Num_pc_log_z", "Num_hab_z", "doy_sin", "doy_cos",
+             "Num_pc_log_z", "doy_sin", "doy_cos",
              "(1 | Id_gcs)", "(1 | CollectorXyear)")
   bf(as.formula(paste0("log_response | resp_se(se_log, sigma = TRUE) ~ ",
                        paste(terms, collapse = " + "))))
@@ -178,7 +187,7 @@ formula_for <- function(index, region_fixed) {
 
 frame_for <- function(hill, index, region_fixed, data_subset) {
   df <- Model_data %>%
-    filter(Hill == hill, !is.na(se_log), !is.na(Num_pc_log_z), !is.na(Num_hab_z), !is.na(doy_sin))
+    filter(Hill == hill, !is.na(se_log), !is.na(Num_pc_log_z), !is.na(doy_sin))
   if (data_subset == "primary") df <- df %>% filter(!is.na(dist_farm), dist_farm < dist_threshold)
   if (index != "baseline") {
     df <- df %>% mutate(focal_z = .data[[paste0(index, "_z")]]) %>% filter(!is.na(focal_z))
@@ -187,6 +196,7 @@ frame_for <- function(hill, index, region_fixed, data_subset) {
     df <- df %>% filter(!is.na(Tot_prec_mean_z), !is.na(Elev_mean_z))
   }
   if (str_detect(region_fixed, "canopy_10k")) df <- df %>% filter(!is.na(canopy_10k_z))
+  if (str_detect(region_fixed, "pool_wes")) df <- df %>% filter(!is.na(pool_wes_z))
   df
 }
 

@@ -19,9 +19,9 @@ index_labels <- c(
 )
 index_order <- unname(index_labels)
 
-## climate = the DAG-sufficient primary; ecoregion = the proxy robustness check (Scripts/dag.R)
-spec_labels <- c(climate = "Climate + canopy", ecoregion = "Ecoregion + canopy")
-spec_colours <- c("Climate + canopy" = "#762a83", "Ecoregion + canopy" = "#1b7837")
+## climate = the DAG-sufficient primary (elev² + precip² + landscape forest + endemism index); ecoregion = the proxy robustness check, Ecoregion alone (Scripts/dag.R)
+spec_labels <- c(climate = "Climate + landscape forest + endemism index", ecoregion = "Ecoregion")
+spec_colours <- c("Climate + landscape forest + endemism index" = "#762a83", "Ecoregion" = "#1b7837")
 
 hill_labels <- c(richness = "Richness (q = 0)", shannon = "Shannon (q = 1)", simpson = "Simpson (q = 2)")
 hill_order <- unname(hill_labels)
@@ -65,7 +65,7 @@ p_index_effects <- Primary %>%
   labs(
     x = "Standardized effect on log diversity (posterior median, 90% CrI)", y = NULL,
     title = "Farm management diversification vs bird diversity",
-    subtitle = "1-SD increase in each index; assemblages < 300 m from the farm. Climate + canopy = primary, Ecoregion + canopy = robustness"
+    subtitle = "1-SD increase in each index; assemblages < 300 m from the farm.\nClimate + landscape forest + endemism index = primary, Ecoregion = robustness"
   ) +
   theme(legend.position = "bottom")
 ggsave("Figures/Farm_mgmt_index_effects.png", p_index_effects, bg = "white", width = 10, height = 4)
@@ -82,32 +82,16 @@ p_bayes_r2 <- Primary %>%
   labs(
     x = "Bayesian R²", y = NULL,
     title = "Variance explained: baseline vs adding each diversification index",
-    subtitle = "Baseline = region + sampling effort + habitat count + day of year, no index"
+    subtitle = "Baseline = region + sampling effort + day of year + random effects, no index"
   ) +
   theme(legend.position = "bottom")
 ggsave("Figures/Farm_mgmt_bayes_r2.png", p_bayes_r2, bg = "white", width = 10, height = 4)
 print(p_bayes_r2)
 
-# Figure 3a: full-data sensitivity ----
-
-## focal index coefficient on the primary (< 300 m) set vs the full set
-subset_labels <- c(primary = "Primary (< 300 m)", full = "All assemblages")
-p_dist_sensitivity <- Model_summaries %>%
-  filter(term == "focal_z", index != "baseline") %>%
-  mutate(Subset = recode(data_subset, !!!subset_labels)) %>%
-  ggplot(aes(estimate, fct_rev(Index), colour = Subset, shape = Subset)) +
-  geom_vline(xintercept = 0, linetype = "dashed", colour = "grey60") +
-  geom_pointrange(aes(xmin = conf_low, xmax = conf_high),
-                  position = position_dodge(width = 0.6), fatten = 2) +
-  facet_grid(Spec ~ Hill) +
-  scale_colour_manual(values = c("Primary (< 300 m)" = "#d95f02", "All assemblages" = "grey30"), name = NULL) +
-  scale_shape_manual(values = c(17, 16), name = NULL) +
-  labs(x = "Standardized effect on log diversity (median, 90% CrI)", y = NULL,
-       title = "Distance-to-farm sensitivity",
-       subtitle = "Index coefficient: primary (point counts average < 300 m from the farm) vs all assemblages") +
-  theme(legend.position = "bottom")
-ggsave("Figures/Farm_mgmt_dist_sensitivity.png", p_dist_sensitivity, bg = "white", width = 10, height = 6)
-print(p_dist_sensitivity)
+## The distance-to-farm cutoff sensitivity is now drawn for BOTH responses in one
+## figure by Scripts/04g (Figures/Dist_sensitivity_combined.png), reading the Cmax
+## coefficients from Farm_mgmt_model_summaries.csv. The old Cmax-only version was
+## removed here.
 
 # Figure 3: posterior predictive checks ----
 
