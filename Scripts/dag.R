@@ -1,6 +1,6 @@
 # Causal DAG for the bird-diversity ~ farm-management-diversification analysis ----
 
-### Reference artifact, not a pipeline stage (like Scripts/Farm_diversity_fns.R). It encodes the assumed causal structure behind Scripts/04_farm_mgmt_mod.R (Aaron's hand-drawn DAG, 2026-08-28), derives the adjustment set the model should target, checks the implied independencies against the data, and maps the 04 specs onto it. Consult before trusting a 04 coefficient. Produces Figures/DAG.png and Derived/Excels/DAG_adjustment_sets.csv.
+### Reference artifact, not a pipeline stage (like Scripts/Farm_diversity_fns.R). It encodes the assumed causal structure behind Scripts/04_farm_mgmt_mod.R (Aaron's hand-drawn DAG, 2026-08-28; simplified 2026-08-31), derives the adjustment set the model should target, checks the implied independencies against the data, and maps the 04 specs onto it. Consult before trusting a 04 coefficient. Produces Figures/DAG.png and Derived/Excels/DAG_adjustment_sets.csv.
 
 # Setup ----
 
@@ -21,15 +21,11 @@ dir.create("Derived/Excels", recursive = TRUE, showWarnings = FALSE)
 # Ecoregion      5-level biogeographic region. A coarse categorical summary of Climate + LandForest + BiogeoHistory; the SCR programme also rolled out differently by region, so it also sits upstream of FarmDiv.
 # Climate        Farm-mean precipitation + elevation (confirmed: elevation IS part of this node; temperature is r = -0.99 with elevation so dropped). Two columns (Elev_mean, Tot_prec_mean), entered as poly(.,2) in 04.
 # BiogeoHistory  UNOBSERVED biogeographic / evolutionary history of the region (Andean uplift, Pleistocene refugia, dispersal barriers). A cause of the regional SpeciesPool that Climate does not capture. No arrow to FarmDiv except through Ecoregion.
-# SpeciesPool    Regional potential species pool -- how many / which species could occur at the farm. Caused by BiogeoHistory AND Climate. Partially MEASURED: Scripts/01b_species_pool.R builds a range-map richness count (pool_point); Scripts/04d tests it. The compositional / endemism part is still unmeasured. On the path Ecoregion -> BiogeoHistory -> SpeciesPool -> BirdDiv, so the climate spec (no Ecoregion, no pool term) leaves that backdoor open -- this is why the Ecoregion spec is a DAG-valid adjustment, not just a robustness check.
-# LandForest     Amount of woody-vegetation cover in the surrounding *landscape* -- WVCC canopy in the ~10 km buffer (the 06b scale-of-effect radius). At that scale it is set by topography, protected areas and hundreds of landholders, NOT by any one farmer -- so it takes no arrow from FarmDiv or FarmerValues and is a PRECISION covariate (predicts BirdDiv, reduces residual variance), not a confounder to adjust. R^2 ~ 0.45 with Ecoregion; ~58% of its SD is within-region.
-# ForestConfig   Configuration / fragmentation of the landscape forest (connectivity, edge, patch size) -- distinct from the amount. UNOBSERVED. Not confounding (no arrow to FarmDiv), just unmodelled outcome noise.
-# FarmerValues   UNOBSERVED farmer priorities / attitudes. Drives how much a farmer diversifies management. Drawn with an arrow ONLY to FarmDiv, so as drawn it is a cause of the exposure only and needs no adjustment. See the "unmeasured-confounder caveats" section: if bird-minded farmers also do in-field things the four indices miss (retain snags, less pesticide, wider fencerows -- an *on-farm*, not 10 km, forest/practice effect), FarmerValues gains a second path to BirdDiv and becomes unblockable confounding.
-# FarmSize       UNOBSERVED farm area. Bigger farms have more room / units to diversify management (-> FarmDiv) and get more point counts (-> NumPC). Both legs are blocked by conditioning on NumPC. The caveat is a possible direct FarmSize -> BirdDiv (species-area: more area -> larger populations, more interior habitat, less edge) that NumPC does not stand in for.
-# NumHab         Number of DISTINCT HABITAT TYPES SURVEYED on the farm. A SAMPLING-SCOPE covariate (distinct from NumPC = effort). CRITICAL: the sampling scope changed over time -- 2013 and 2016/17 surveys covered FOREST ONLY; 2019 onward covered the land-use gradient (forest + silvopasture + pasture). So early-year assemblages have low NumHab and their diversity estimate reflects forest birds, not the whole farm. NumHab + the Observer(CollectorXyear) RE + Year together are what control for this. Not a mediator of FarmDiv.
+# SpeciesPool    Regional potential species pool -- how many / which species could occur at the farm. Caused by BiogeoHistory AND Climate. Partially MEASURED: Scripts/01b_species_pool.R builds a range-map richness count (pool_point) plus range-rarity-weighted variants (pool_wes / pool_cwe); Scripts/04d and 04i test them. The compositional / endemism part is only partly captured. On the path Ecoregion -> BiogeoHistory -> SpeciesPool -> BirdDiv, so the climate spec (no Ecoregion, no pool term) leaves that backdoor open -- this is why the Ecoregion spec is a DAG-valid adjustment, not just a robustness check.
+# LandForest     Amount of woody-vegetation cover in the surrounding *landscape* -- WVCC canopy in the ~10 km buffer (the 06b scale-of-effect radius). At that scale it is set by topography, protected areas and hundreds of landholders, NOT by any one farmer -- so it takes no arrow from FarmDiv and is a PRECISION covariate (predicts BirdDiv, reduces residual variance), not a confounder to adjust. R^2 ~ 0.45 with Ecoregion; ~58% of its SD is within-region.
 # NumPC          Number of distinct point counts in the assemblage (per [farm x team x year], confirmed -- not per farm). Sampling effort.
 # Season         Calendar timing of the surveys within the season (Nearctic-migrant influx Oct-Mar). All modelled data is "Early" season, so this is purely the within-Early calendar position. Column: mean Julian day -> doy_sin/doy_cos.
-# Year           Survey year-group (Ano_grp: 13_14, 16_17, 19, 22, 24, 25_26). Fixed Year was dropped from 04 (near-collinear with Observer); folded into the Observer/CollectorXyear RE. Kept as a node because the sampling-scope change above is a Year effect.
+# Year           Survey year-group (Ano_grp: 13_14, 16_17, 19, 22, 24, 25_26). Fixed Year was dropped from 04 (near-collinear with Observer); folded into the Observer/CollectorXyear RE. Kept as a node because the sampling-scope change (see NumHab under "Variables to consider") is a Year effect.
 # Observer       The data collector x year-group batch = one of 6 field teams / 8 CollectorXyear levels (Gaica-mbd, Cipav, Gaica-distancia, Unillanos, UBC-mbd, UBC-gaica). Protocol + which farms + which habitats surveyed. NOT the individual observer (not in the data). Region-bound (4 of 6 teams are Piedemonte-only). = the CollectorXyear random effect.
 
 # The DAG ----
@@ -37,9 +33,6 @@ dir.create("Derived/Excels", recursive = TRUE, showWarnings = FALSE)
 dag <- dagitty('dag {
   FarmDiv [exposure]
   BirdDiv [outcome]
-  FarmerValues [latent]
-  FarmSize [latent]
-  ForestConfig [latent]
   BiogeoHistory [latent]
 
   Ecoregion -> Climate
@@ -49,7 +42,6 @@ dag <- dagitty('dag {
   Ecoregion -> Season
   Ecoregion -> BiogeoHistory
 
-  Climate -> FarmDiv
   Climate -> LandForest
   Climate -> BirdDiv
   Climate -> SpeciesPool
@@ -57,53 +49,53 @@ dag <- dagitty('dag {
   BiogeoHistory -> SpeciesPool
   SpeciesPool -> BirdDiv
 
-  FarmerValues -> FarmDiv
-
-  FarmSize -> FarmDiv
-  FarmSize -> NumPC
-
   LandForest -> BirdDiv
-  LandForest -> ForestConfig
-  ForestConfig -> BirdDiv
 
   FarmDiv -> BirdDiv
 
   Year -> Observer
   Year -> BirdDiv
-  Year -> NumHab
   Observer -> Season
   Season -> BirdDiv
   Observer -> NumPC
-  Observer -> NumHab
   Observer -> BirdDiv
   NumPC -> BirdDiv
-  NumHab -> BirdDiv
 }')
 
-### Year -> NumHab: the sampling-SCOPE norm shifted around 2019 -- 2013 & 2016/17 surveys were forest-only, 2019+ spanned the land-use gradient. So NumHab (habitat types surveyed) is low in the early years by protocol, not by farm. This is a Year effect on top of the team effect (Observer -> NumHab). Controlling NumHab + the CollectorXyear RE handles it, but the early forest-only assemblages are, in effect, estimating forest-bird diversity rather than whole-farm diversity -- a caveat for interpreting those rows. See Project_notes.md "Background: the source bird dataset".
-
 ### NOT drawn, and why:
-# - Ecoregion -> BirdDiv direct: omitted per Aaron\'s DAG -- Ecoregion acts on birds only THROUGH Climate, LandForest and BiogeoHistory -> SpeciesPool. The SpeciesPool branch is now explicit (was folded into "Ecoregion is a stand-in"): it is what makes the climate spec insufficient on its own and the Ecoregion spec a DAG-valid adjustment.
-# - FarmDiv -> LandForest and FarmerValues -> LandForest: LandForest is the ~10 km buffer, dominated by non-farm land -- neither a single farmer\'s planting nor their values move it. (At a farm-scale radius these arrows would exist; that is the on-farm forest effect folded into the FarmerValues caveat below.)
-# - FarmDiv -> NumHab: per Aaron, NumHab is what was surveyed, not a farm property caused by diversification.
+# - Ecoregion -> BirdDiv direct: omitted per Aaron's DAG -- Ecoregion acts on birds only THROUGH Climate, LandForest and BiogeoHistory -> SpeciesPool. The SpeciesPool branch is explicit: it is what makes the climate spec insufficient on its own and the Ecoregion spec a DAG-valid adjustment.
+# - FarmDiv -> LandForest: LandForest is the ~10 km buffer, dominated by non-farm land -- a single farmer's planting does not move it. (At a farm-scale radius this arrow would exist; that is the on-farm forest effect under "Variables to consider".)
+# - Climate -> FarmDiv: removed by Aaron 2026-08-30 -- the management indices are structured by region (culture, extension networks) rather than directly by rainfall / elevation, and Ecoregion -> FarmDiv already carries that.
 
-### UNMEASURED-CONFOUNDER CAVEATS (why the result is "consistent with no effect", not "proven"):
-# - FarmerValues -> [on-farm practices / local woody cover the 4 indices miss] -> BirdDiv. A farm-scale version of the forest path, unmeasured -> unblockable confounding. Bird-minded farmers could raise both the diversification score and bird diversity through things not in the indices.
-# - FarmSize -> BirdDiv (species-area / interior-habitat / edge). The FarmSize -> FarmDiv and FarmSize -> NumPC -> BirdDiv legs ARE blocked by conditioning on NumPC; a direct area effect on diversity is not. Measuring farm hectares would close this.
-# Both would bias a real effect toward the positive; neither is in the identified adjustment set below.
+# Variables to consider (removed or unmeasured) ----
 
+### The DAG above is deliberately minimal. These are variables that were dropped for simplicity, or are unmeasured, and why each could matter. The two unmeasured ones (FarmerValues, FarmSize) are why the honest reading is "consistent with no effect", not "no effect": both would bias a true effect toward the positive and neither is in the identified adjustment set.
+#
+# NumHab      Number of distinct habitat types surveyed on the farm. A sampling-SCOPE covariate (distinct from NumPC = effort). The sampling scope shifted around 2019: 2013 & 2016/17 surveys were FOREST-ONLY, 2019+ spanned the land-use gradient (forest + silvopasture + pasture). So early-year assemblages estimate forest-bird diversity, not whole-farm diversity. DROPPED from the DAG because it is outcome-side only (child of Year + Observer, parent of BirdDiv) -- never on a path between FarmDiv and BirdDiv, so it is in neither adjustment set -- and in the fitted 04 models its coefficient is -0.03 to -0.09 with every CrI spanning zero: NumPC + the CollectorXyear RE + Year already absorb the scope shift. The early forest-only rows remain a caveat for interpretation, not an adjustment need. (04 still carries Num_hab_z as a legacy precision term; harmless, could be dropped for consistency.)
+#
+# FarmSize    UNMEASURED farm area (hectares). Bigger farms have more room / units to diversify (-> FarmDiv) and get more point counts (-> NumPC); both legs are blocked by conditioning on NumPC. The unblocked concern is a DIRECT FarmSize -> BirdDiv (species-area: more area -> larger populations, more interior habitat, less edge) that NumPC does not stand in for. Measuring farm hectares would close this.
+#
+# FarmerValues  UNMEASURED farmer priorities / attitudes. Drives how much a farmer diversifies management (-> FarmDiv). As a cause of the exposure only, it needs no adjustment. BUT if bird-minded farmers also do in-field things the four indices miss (retain snags, less pesticide, wider fencerows), FarmerValues gains a second path to BirdDiv and becomes unblockable confounding.
+#
+# On-farm / boundary woody cover  The farm-scale version of LandForest (fencerow trees, live fences, scattered pasture trees, farm canopy). At a farm-scale radius, FarmDiv -> woody cover and FarmerValues -> woody cover both exist -- this is the concrete mechanism behind the FarmerValues caveat. A farm-level canopy / tree-density measure would let this path be modelled explicitly rather than left as confounding.
+#
+# ForestConfig  Landscape forest CONFIGURATION (edge density, patch size, connectivity) independent of total cover. Could predict BirdDiv beyond LandForest amount. Takes no arrow from FarmDiv at the 10 km scale, so it is outcome noise / precision, not confounding. Removed by Aaron 2026-08-30 for simplicity.
+#
+# Realized / compositional species pool  pool_point is range-map RICHNESS; the compositional & endemism part of SpeciesPool (the BiogeoHistory branch that climate proxies miss) is only partly captured by pool_wes / pool_cwe, which are themselves ~0.8 correlated with elevation. An eBird-derived realized-composition or phylogenetic-turnover measure would be a cleaner instrument for that branch.
+
+### Two visual blocks: Ecoregion + the region / environment drivers it summarises on the left, the sampling covariates on the right, exposure far left and outcome in the middle. The Ecoregion -> Observer / -> Season edges cross the figure by necessity (field teams are region-bound).
 coordinates(dag) <- list(
-  x = c(FarmDiv = 1.7, BirdDiv = 2.3, FarmerValues = 3.8, FarmSize = 3.4, ForestConfig = 4.1,
-        Ecoregion = 0, Climate = 1.1, LandForest = 3.3, BiogeoHistory = 0.5, SpeciesPool = 1.9,
-        Year = 0, Season = 4.2, NumPC = 0.7, NumHab = 1.5, Observer = 1.1),
-  y = c(FarmDiv = 4.1, BirdDiv = 2, FarmerValues = 4.6, FarmSize = 4.9, ForestConfig = 2.7,
-        Ecoregion = 3.4, Climate = 3.1, LandForest = 3.6, BiogeoHistory = 5.1, SpeciesPool = 5.2,
-        Year = 2.2, Season = 2.2, NumPC = 0.2, NumHab = 0.2, Observer = 0.9)
+  x = c(FarmDiv = 0.8, BirdDiv = 4.2,
+        Ecoregion = 1.3, Climate = 3.0, BiogeoHistory = 0.9, SpeciesPool = 3.0, LandForest = 4.5,
+        Year = 6.3, Observer = 6.4, Season = 6.5, NumPC = 6.6),
+  y = c(FarmDiv = 1.9, BirdDiv = 2.1,
+        Ecoregion = 5.8, Climate = 5.1, BiogeoHistory = 3.9, SpeciesPool = 3.5, LandForest = 5.4,
+        Year = 5.4, Observer = 3.9, Season = 2.5, NumPC = 1.1)
 )
 
 # Adjustment set ----
 
-### Total effect of FarmDiv on BirdDiv. NumHab is a sampling covariate here (not a mediator), so it is a normal control, not something to hold out.
+### Total effect of FarmDiv on BirdDiv.
 total_min <- adjustmentSets(dag, exposure = "FarmDiv", outcome = "BirdDiv",
                             effect = "total", type = "minimal")
 total_can <- adjustmentSets(dag, exposure = "FarmDiv", outcome = "BirdDiv",
@@ -112,21 +104,21 @@ total_can <- adjustmentSets(dag, exposure = "FarmDiv", outcome = "BirdDiv",
 cat("== Total-effect adjustment (minimal) ==\n"); print(total_min)
 cat("\n== Total-effect adjustment (canonical) ==\n"); print(total_can)
 
-### READING (2026-08-30, Aaron's DAG + explicit SpeciesPool branch)
+### READING (2026-08-31, Aaron's simplified DAG -- Climate -> FarmDiv removed, so the sets are smaller than before)
 # dagitty gives two minimal sufficient sets:
-#   (1) { Climate, LandForest, NumPC, Observer, Season, SpeciesPool, Year }   -- block every Ecoregion channel to BirdDiv without conditioning on Ecoregion itself
-#   (2) { Climate, Ecoregion, NumPC, Observer }                              -- condition on Ecoregion, which closes the LandForest AND the BiogeoHistory->SpeciesPool channels at once
+#   (1) { Climate, LandForest, SpeciesPool, Observer, Season, Year }   -- block every Ecoregion channel to BirdDiv without conditioning on Ecoregion itself
+#   (2) { Ecoregion }                                                  -- one node closes all of them at the source
 # Points:
-#   - Climate is a fork with its own arrows to FarmDiv and BirdDiv, so conditioning on Ecoregion (its parent) does NOT substitute for it -- Climate has to be in the model explicitly.
-#   - Set (1) now REQUIRES a SpeciesPool term: adding BiogeoHistory -> SpeciesPool -> BirdDiv opens the backdoor FarmDiv <- Ecoregion -> BiogeoHistory -> SpeciesPool -> BirdDiv, which Climate + LandForest do NOT block. So the pure climate spec (elev + precip + canopy, no pool) is NOT a valid adjustment on its own -- it is valid only if SpeciesPool is fully captured by what is in the model. Scripts/04d adds the range-map richness count (pool_point) as that term and finds it does not move the coefficient; but the compositional / endemism part of SpeciesPool is still unmeasured.
-#   - Set (2), the Ecoregion spec, blocks the SpeciesPool backdoor directly (Ecoregion is an ancestor of BiogeoHistory). It is therefore a DAG-VALID adjustment, not merely a "robustness proxy for Climate" -- with the caveat that the 5-level factor still has to proxy Climate itself (R^2 ~ 0.8 on elev/precip), so Climate stays in that model too.
+#   - FarmDiv's ONLY parent is Ecoregion, so every backdoor runs FarmDiv <- Ecoregion -> ... -> BirdDiv. Conditioning on Ecoregion (set 2) closes all of them -- nothing else is strictly required. The Ecoregion spec is exactly the minimal adjustment.
+#   - Since Climate -> FarmDiv was removed, Climate is no longer a fork on the exposure. In set (1) it is still needed -- to block FarmDiv <- Ecoregion -> Climate -> BirdDiv (and the Climate -> LandForest / -> SpeciesPool legs) without conditioning on Ecoregion -- but it is NOT needed on top of Ecoregion in set (2).
+#   - Set (1) REQUIRES a SpeciesPool term: FarmDiv <- Ecoregion -> BiogeoHistory -> SpeciesPool -> BirdDiv is a backdoor Climate + LandForest do NOT block. So the pure climate spec (elev + precip + canopy, no pool) is valid only if SpeciesPool is captured by what is in the model. Scripts/04d adds the range-map richness count (pool_point) and 04i the range-rarity-weighted variants; none move the coefficient, but the compositional / endemism part of SpeciesPool is still only partly measured.
+#   - Observer + Year together handle the sampling side of set (1): conditioning on Observer blocks FarmDiv <- Ecoregion -> Observer -> {NumPC, Season, BirdDiv}, but it also opens the collider path FarmDiv <- Ecoregion -> [Observer] <- Year -> BirdDiv, so Year is then required too. In 04 both are folded into the CollectorXyear RE (Year was near-collinear with Observer).
+#   - NumPC is NOT a required confounder in this DAG: its only backdoor (Ecoregion -> Observer -> NumPC -> BirdDiv) is already blocked by conditioning on Observer. It is kept in 04 for PRECISION and to guard the unmeasured FarmDiv <- FarmSize -> NumPC -> BirdDiv path (see "Variables to consider"). Canopy was ALSO pure precision in the Ecoregion spec and was dropped 2026-08-31 -- that spec is now Ecoregion alone (exactly set 2).
 #   - A combined "Ecoregion + Climate + pool" model is over-specified and unidentifiable at this collinearity. Skip it.
-#   - LandForest (canopy) is required in set (1) as an Ecoregion proxy: it blocks FarmDiv <- Ecoregion -> LandForest -> BirdDiv when Ecoregion is not conditioned on. NOT a FarmDiv-specific backdoor -- no farmer moves a 10 km buffer. In set (2) it drops out of the minimal set and is pure PRECISION. Keep canopy in both specs regardless.
-#   - NumPC enters BOTH sets as a genuine confounder: FarmDiv <- FarmSize -> NumPC -> BirdDiv (bigger farms diversify more AND get more point counts). NumHab is still a pure sampling/scope covariate on the outcome only. Watch: NumHab ~ Land_use / All_practices sits at p ~ 0.05-0.08, so a "drop NumHab" sensitivity for those two is on the backlog.
-#   - Two latent paths are NOT closed by any set here (see "unmeasured-confounder caveats" above): FarmerValues -> on-farm practices the 4 indices miss -> BirdDiv, and FarmSize -> BirdDiv directly (species-area). Both push a null toward positive, so "consistent with no effect" is the honest reading. ForestConfig is unmeasured but takes no arrow from FarmDiv -> outcome noise, not confounding.
-# => 04 climate spec = poly(Elev,2) + poly(Precip,2) + canopy + CollectorXyear RE + doy + NumPC + NumHab  (set 1 MINUS the SpeciesPool term; 04d adds the range-map pool separately and it does not matter).
-#    04 ecoregion spec = Ecoregion + canopy + CollectorXyear RE + doy + NumPC + NumHab  (superset of set 2; the DAG-valid adjustment for the SpeciesPool backdoor).
-#    Report both; they now agree the effect is ~0 once precipitation is well controlled. LOO for the doy / RE nuisance terms: deferred (backlog).
+#   - Two unmeasured paths are NOT closed by any set here (see "Variables to consider"): FarmerValues -> on-farm practices the 4 indices miss -> BirdDiv, and FarmSize -> BirdDiv directly (species-area). Both push a null toward positive, so "consistent with no effect" is the honest reading.
+# => 04 climate spec  = poly(Elev,2) + poly(Precip,2) + canopy + CollectorXyear RE + doy + NumPC  (set 1 MINUS the SpeciesPool term, PLUS canopy/NumPC for precision; 04d / 04i add a pool term separately and it does not matter).
+#    04 ecoregion spec = Ecoregion + CollectorXyear RE + doy + NumPC  (set 2 = {Ecoregion} exactly, PLUS doy / NumPC / RE as nuisance/precision).
+#    Report both; they agree the effect is ~0 once precipitation is well controlled. LOO for the doy / RE nuisance terms: deferred (backlog).
 
 # Testable implications ----
 
@@ -149,7 +141,7 @@ if (file.exists(data_path)) {
   }
 
   checks <- expand_grid(
-    target = c("canopy_10k", "Num_pc_log", "Num_hab_num"),
+    target = c("canopy_10k", "Num_pc_log"),
     index = indices
   ) %>%
     mutate(
@@ -159,18 +151,18 @@ if (file.exists(data_path)) {
       flag = if_else(p_value < 0.05, "** exposure-covariate tension", "")
     ) %>%
     select(implication, p_value, flag)
-  cat("\n== Data spot-checks: covariate _||_ exposure | conditioning set (12 tests) ==\n")
-  print(checks, width = Inf, n = 12)
-  cat("canopy: a real FarmDiv->canopy arrow at 10 km is implausible -> a flag here just means the 10 km canopy still tracks management within region (shared topography / programme rollout), not a causal path; conditioning on it is still fine. A NumPC flag is expected -- that is the FarmSize -> NumPC confounder we now adjust for. A strong NumHab flag would mean survey scope tracks management beyond region -- worth a closer look.\n")
+  cat("\n== Data spot-checks: covariate _||_ exposure | conditioning set (8 tests) ==\n")
+  print(checks, width = Inf, n = 8)
+  cat("canopy: a real FarmDiv->canopy arrow at 10 km is implausible -> a flag here just means the 10 km canopy still tracks management within region (shared topography / programme rollout), not a causal path; conditioning on it is still fine. A NumPC flag is expected -- that is the FarmSize -> NumPC confounder we now adjust for.\n")
 }
 
 # How the 04 specs map onto the DAG ----
 
 spec_map <- tribble(
   ~spec,        ~adjusts,                                                              ~role,
-  "climate",    "poly(Elev,2) + poly(Precip,2) + canopy + CollectorXyear RE + doy + NumPC + NumHab", "set 1 MINUS the SpeciesPool term -- valid only if the species pool adds nothing (04d: the range-map pool does not; the compositional part is unmeasured)",
-  "ecoregion",  "Ecoregion + canopy + CollectorXyear RE + doy + NumPC + NumHab",               "DAG-valid adjustment (set 2) -- Ecoregion closes the BiogeoHistory->SpeciesPool backdoor; still proxies Climate (R2 ~ 0.8), so canopy kept for precision",
-  "(combined)", "Ecoregion + Climate + pool together",                                        "NOT USED -- over-specified; unidentifiable at ~0.8 collinearity"
+  "climate",    "poly(Elev,2) + poly(Precip,2) + canopy + CollectorXyear RE + doy + NumPC", "set 1 MINUS the SpeciesPool term -- valid only if the species pool adds nothing (04d / 04i: the measured pool terms do not; the compositional part is only partly captured)",
+  "ecoregion",  "Ecoregion + CollectorXyear RE + doy + NumPC",                            "DAG-valid adjustment (set 2 = {Ecoregion} exactly) -- the factor closes the LandForest and BiogeoHistory->SpeciesPool backdoors; still proxies Climate (R2 ~ 0.8). Canopy dropped 2026-08-31, it was pure precision here",
+  "(combined)", "Ecoregion + Climate + pool together",                                   "NOT USED -- over-specified; unidentifiable at ~0.8 collinearity"
 )
 cat("\n== 04 spec <-> DAG ==\n"); print(spec_map, width = Inf)
 
@@ -182,28 +174,73 @@ write_csv(adj_out, "Derived/Excels/DAG_adjustment_sets.csv")
 
 # Figure ----
 
+### Short node names drive dagitty / the adjustment sets; these are the readable labels for the plot only.
+node_labels <- c(
+  FarmDiv       = "Farm \ndiversification",
+  BirdDiv       = "Bird\ndiversity",
+  Ecoregion     = "Ecoregion",
+  Climate       = "Climate\n(elev + precip)",
+  BiogeoHistory = "Biogeographic\nhistory",
+  SpeciesPool   = "Regional\nspecies pool",
+  LandForest    = "Landscape\nforest",
+  Year          = "Survey year",
+  Observer      = "Field team",
+  Season        = "Survey timing",
+  NumPC         = "Number\nof surveys"
+)
+
 dag_tidy <- dag %>%
   tidy_dagitty() %>%
-  mutate(role = case_when(
-    name == "FarmDiv" ~ "exposure",
-    name == "BirdDiv" ~ "outcome",
-    name %in% c("FarmerValues", "FarmSize", "ForestConfig", "BiogeoHistory") ~ "unobserved",
-    name %in% c("NumPC", "NumHab", "Season", "Year", "Observer") ~ "sampling",
-    TRUE ~ "confounder / covariate"
-  ))
+  mutate(
+    role = case_when(
+      name == "FarmDiv" ~ "exposure",
+      name == "BirdDiv" ~ "outcome",
+      name == "BiogeoHistory" ~ "unobserved",
+      name %in% c("NumPC", "Season", "Year", "Observer") ~ "sampling",
+      TRUE ~ "region / environment"
+    ),
+    label = node_labels[name]
+  )
 
 role_cols <- c(exposure = "#1b7837", outcome = "#762a83", unobserved = "grey72",
-               sampling = "#4393c3", "confounder / covariate" = "grey30")
+               sampling = "#4393c3", "region / environment" = "grey30")
 
-p_dag <- ggplot(dag_tidy, aes(x = x, y = y, xend = xend, yend = yend)) +
-  geom_dag_edges(edge_colour = "grey55") +
-  geom_dag_point(aes(colour = role), size = 21) +
-  geom_dag_text(colour = "white", size = 2.3) +
+### Draw edges as manually shortened, gently curved segments (not geom_dag_edges) so the arrowheads clear the node discs instead of hiding under them and near-parallel edges fan apart. r_start / r_end are node radii in data units, tuned to the point size below under coord_equal().
+gd    <- dag_tidy$data
+nodes <- gd %>% distinct(name, x, y, role, label)
+r_start <- 0.50
+r_end   <- 0.62
+edges <- gd %>%
+  filter(!is.na(to)) %>%
+  mutate(
+    dx = xend - x, dy = yend - y, len = sqrt(dx^2 + dy^2),
+    x1 = x    + dx * r_start / len, y1 = y    + dy * r_start / len,
+    x2 = xend - dx * r_end   / len, y2 = yend - dy * r_end   / len
+  )
+### The two Ecoregion -> sampling edges cross the whole figure; give them a deeper bow so they sweep clear of the environment cluster instead of grazing its nodes.
+is_long   <- edges$name == "Ecoregion" & edges$to %in% c("Observer", "Season")
+edge_arrow <- grid::arrow(length = grid::unit(11, "pt"), type = "closed")
+
+p_dag <- ggplot() +
+  geom_curve(data = edges[!is_long, ], aes(x = x1, y = y1, xend = x2, yend = y2),
+             curvature = -0.10, colour = "grey40", linewidth = 0.7, lineend = "round",
+             arrow = edge_arrow) +
+  geom_curve(data = edges[is_long, ], aes(x = x1, y = y1, xend = x2, yend = y2),
+             curvature = 0.32, colour = "grey55", linewidth = 0.6, lineend = "round",
+             arrow = edge_arrow) +
+  geom_point(data = nodes, aes(x, y, colour = role), size = 33) +
+  geom_text(data = nodes, aes(x, y, label = label), colour = "white",
+            fontface = "bold", size = 3.35, lineheight = 0.9) +
   scale_colour_manual(values = role_cols, name = NULL) +
-  expand_limits(x = c(-0.5, 4.7), y = c(-0.2, 5.5)) +
+  coord_equal(clip = "off") +
+  expand_limits(x = c(0.2, 7.2), y = c(0.7, 6.1)) +
   labs(title = "Assumed causal structure: farm management diversification -> bird diversity",
-       subtitle = "Two DAG-valid adjustments: {Climate, LandForest, NumPC, Observer/Season/Year, SpeciesPool} or {Climate, Ecoregion, NumPC, Observer}.\nGrey = unobserved (farmer values, farm size, biogeographic history, forest configuration). See the script for the reading.") +
-  theme(legend.position = "bottom", plot.subtitle = element_text(size = 9))
+       subtitle = "Left: Ecoregion and the region / environment drivers it summarises. Right: the sampling covariates.\nTwo DAG-valid adjustments: {Climate, LandForest, SpeciesPool, Observer, Season, Year} or {Ecoregion} alone.\nGrey = unobserved. See the script for the reading and for variables held out.") +
+  theme(legend.position = "bottom",
+        legend.text = element_text(size = 13),
+        plot.title = element_text(size = 16),
+        plot.subtitle = element_text(size = 11),
+        plot.margin = margin(8, 8, 8, 8))
 
-ggsave("Figures/DAG.png", p_dag, width = 12, height = 8.5, bg = "white")
+ggsave("Figures/DAG.png", p_dag, width = 14, height = 8.0, bg = "white")
 print(p_dag)
