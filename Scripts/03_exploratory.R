@@ -6,12 +6,8 @@
 library(tidyverse)
 library(GGally)
 library(cowplot)
-library(conflicted)
 
-## Pin the dplyr verbs so this script still runs when sourced into a session that already has MASS / car attached (e.g. after qmd/_archive/03_Farm_diversity.qmd)
-conflicts_prefer(dplyr::select)
-conflicts_prefer(dplyr::filter)
-conflicts_prefer(dplyr::recode)
+### `conflicted` not used -- tidyverse / GGally / cowplot do not mask the dplyr verbs. If this script is sourced into a session that has already attached MASS / car (they mask select / filter / recode), qualify those specific calls with dplyr:: rather than loading conflicted.
 
 ggplot2::theme_set(theme_cowplot())
 
