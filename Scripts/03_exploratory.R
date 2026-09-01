@@ -16,7 +16,7 @@ dir.create("Derived/Excels", recursive = TRUE, showWarnings = FALSE)
 
 # Load data ----
 
-## Matched farm diversification indices (only farms with an associated bird biodiversity estimate; see Scripts/02_match_farm_diversity.R) and the un-matched farms, kept for the representativeness check below. The matched file now carries Ecoregion and the farm-level climate covariates (added in 01 from Data/Farm_covariates.csv).
+## Matched farm diversification indices (only farms with an associated bird biodiversity estimate; see Scripts/01a_farm_data.R) and the un-matched farms, kept for the representativeness check below. The matched file now carries Ecoregion and the farm-level climate covariates (added in 01a from Data/Farm_covariates.csv).
 Farm_div_matched <- read_csv("Derived/Excels/Farm_diversity_matched.csv", show_col_types = FALSE) %>%
   mutate(Id_gcs = as.character(Id_gcs))
 Farm_div_unmatched <- read_csv("Derived/Excels/Farm_diversity_unmatched.csv", show_col_types = FALSE) %>%

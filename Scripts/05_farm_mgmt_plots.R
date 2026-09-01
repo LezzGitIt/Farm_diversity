@@ -1,6 +1,8 @@
-# Figures for the bird-diversity ~ farm-management-diversification models ----
+# Figures for the bird-diversity ~ farm-management-diversification analysis ----
 
-### Reads the fitted models and the summary table written by Scripts/04_farm_mgmt_mod.R and builds the figures. Every plot object is saved to Figures/ and printed, and the script is safe to source() -- it never refits. Plot objects are named for reuse in the .qmd report and the manuscript.
+### The manuscript / summary-report figures for the question of interest. Reads the summary tables + fitted models from Scripts/04a (primary: both responses x both adjustment sets) and Scripts/04b (the Piedemonte cut). Safe to source() -- never refits. Every plot object is saved, printed, and named for reuse in the .qmd reports.
+
+### (Was three scripts: 05 = the primary forest / R2 / pp-check / conditional-effect figures; 05c = the Piedemonte forest plot; the incidence-response + distance-sensitivity figures used to be built in 04g. The species-pool diagnostic figures moved to Scripts/04b's pool_blocks section.)
 
 # Setup ----
 library(tidyverse)
@@ -88,10 +90,7 @@ p_bayes_r2 <- Primary %>%
 ggsave("Figures/Farm_mgmt_bayes_r2.png", p_bayes_r2, bg = "white", width = 10, height = 4)
 print(p_bayes_r2)
 
-## The distance-to-farm cutoff sensitivity is now drawn for BOTH responses in one
-## figure by Scripts/04g (Figures/Dist_sensitivity_combined.png), reading the Cmax
-## coefficients from Farm_mgmt_model_summaries.csv. The old Cmax-only version was
-## removed here.
+## The distance-to-farm cutoff sensitivity (both responses) is Figure 6 below.
 
 # Figure 3: posterior predictive checks ----
 
@@ -165,3 +164,99 @@ print(p_index_conditional)
   p_ppcheck <- NULL
   p_index_conditional <- NULL
 }
+
+# Figure 5: coverage/Cmax vs point-count-standardised (incidence) response ----
+
+### was Scripts/04g's p_effects. The focal management coefficient under each response, both adjustment sets.
+inc_index_lab <- c(Land_use_div = "Land use", Water_mgmt_div = "Water mgmt",
+                   Pasture_mgmt_div = "Pasture mgmt", All_practices_div = "All practices")
+
+focal_both_responses <- bind_rows(
+  Model_summaries %>%
+    filter(term == "focal_z", data_subset == "primary") %>%
+    transmute(hill, index, spec, resp = "Coverage / Cmax",
+              est = estimate, lo = conf_low, hi = conf_high),
+  read_csv("Derived/Excels/Incidence_response_summaries.csv", show_col_types = FALSE) %>%
+    filter(index != "baseline", data_subset == "primary") %>%
+    transmute(hill, index, spec, resp = "Incidence (m* = 6)",
+              est = focal_est, lo = focal_lo, hi = focal_hi)
+) %>%
+  mutate(Index = factor(recode(index, !!!inc_index_lab), levels = rev(unname(inc_index_lab))),
+         Hill  = factor(recode(hill, !!!hill_labels), levels = hill_order),
+         Spec  = recode(spec, !!!spec_labels))
+
+p_incidence_effects <- focal_both_responses %>%
+  ggplot(aes(est, Index, colour = resp)) +
+  geom_vline(xintercept = 0, linetype = "dashed", colour = "grey60") +
+  geom_pointrange(aes(xmin = lo, xmax = hi), position = position_dodge(width = 0.5), size = 0.4) +
+  scale_colour_manual(values = c("Coverage / Cmax" = "#d95f02", "Incidence (m* = 6)" = "#08519c"), name = NULL) +
+  facet_grid(Spec ~ Hill) +
+  labs(x = "Management-diversification coefficient (focal_z, 90% CrI)", y = NULL,
+       title = "Management effect: coverage/Cmax response vs point-count-standardised response") +
+  theme(legend.position = "bottom")
+ggsave("Figures/Incidence_response_effects.png", p_incidence_effects, bg = "white", width = 11, height = 7, dpi = 150)
+print(p_incidence_effects)
+
+# Figure 6: distance-to-farm cutoff sensitivity, both responses ----
+
+### was Scripts/04g's p_dist. Focal coefficient on the primary (< 300 m) set vs every assemblage, both specs, both responses.
+subset_lab <- c(primary = "Primary (< 300 m)", full = "All assemblages")
+resp_pal   <- c("Coverage / Cmax" = "#d95f02", "Incidence (m* = 6)" = "#08519c")
+
+dist_both <- bind_rows(
+  Model_summaries %>%
+    filter(term == "focal_z", index != "baseline") %>%
+    transmute(hill, index, spec, data_subset, response = "Coverage / Cmax",
+              est = estimate, lo = conf_low, hi = conf_high),
+  read_csv("Derived/Excels/Incidence_response_summaries.csv", show_col_types = FALSE) %>%
+    filter(index != "baseline") %>%
+    transmute(hill, index, spec, data_subset, response = "Incidence (m* = 6)",
+              est = focal_est, lo = focal_lo, hi = focal_hi)
+) %>%
+  mutate(Index = factor(recode(index, !!!inc_index_lab), levels = rev(unname(inc_index_lab))),
+         Hill  = factor(recode(hill, !!!hill_labels), levels = hill_order),
+         Spec  = recode(spec, climate = "Climate spec", ecoregion = "Ecoregion spec"),
+         Subset   = factor(recode(data_subset, !!!subset_lab), levels = unname(subset_lab)),
+         Response = factor(response, levels = names(resp_pal)))
+
+p_dist_sensitivity <- ggplot(dist_both, aes(est, Index, colour = Response, shape = Subset,
+                                            group = interaction(Response, Subset))) +
+  geom_vline(xintercept = 0, linetype = "dashed", colour = "grey60") +
+  geom_pointrange(aes(xmin = lo, xmax = hi), position = position_dodge(width = 0.7), size = 0.35) +
+  scale_colour_manual(values = resp_pal, name = NULL) +
+  scale_shape_manual(values = c("Primary (< 300 m)" = 16, "All assemblages" = 1), name = NULL) +
+  scale_x_continuous(breaks = c(-0.05, 0, 0.05, 0.1)) +
+  facet_grid(Spec ~ Hill) +
+  labs(x = "Diversification-index coefficient (focal_z, 90% CrI)", y = NULL,
+       title = "Distance-to-farm cutoff sensitivity, both responses",
+       subtitle = "Point counts averaging < 300 m from the farm (filled) vs all assemblages (open).") +
+  theme(legend.position = "bottom", panel.spacing.x = unit(1, "lines"))
+ggsave("Figures/Dist_sensitivity_combined.png", p_dist_sensitivity, bg = "white", width = 11, height = 7.5, dpi = 150)
+print(p_dist_sensitivity)
+
+# Figure 7: Piedemonte-only cut ----
+
+### was Scripts/05c. Focal-index forest plot for the single-ecoregion analysis (Scripts/04b piedemonte section): both responses, primary (< 300 m) + all-assemblages, full random effects.
+pied_resp_lab <- c(cmax = "Coverage / Cmax", incidence = "Incidence (m* = 6)")
+
+Pied_summaries <- read_csv("Derived/Excels/Farm_mgmt_piedemonte_summaries.csv", show_col_types = FALSE) %>%
+  filter(term == "focal_z", re_spec == "full_re") %>%
+  { if ("response_type" %in% names(.)) . else mutate(., response_type = "cmax") } %>%
+  mutate(fit = if_else(data_subset == "full", "All assemblages", "Primary (< 300 m)"),
+         Hill = factor(recode(hill, !!!hill_labels), levels = hill_order),
+         Index = factor(recode(index, !!!inc_index_lab), levels = unname(inc_index_lab)),
+         Response = factor(recode(response_type, !!!pied_resp_lab), levels = unname(pied_resp_lab)),
+         fit = factor(fit, levels = c("Primary (< 300 m)", "All assemblages")))
+
+p_pied_effects <- ggplot(Pied_summaries, aes(estimate, fct_rev(Index), colour = fit, shape = fit)) +
+  geom_vline(xintercept = 0, linetype = "dashed", colour = "grey60") +
+  geom_pointrange(aes(xmin = conf_low, xmax = conf_high), position = position_dodge(width = 0.6), fatten = 2) +
+  facet_grid(Response ~ Hill) +
+  scale_colour_manual(values = c("Primary (< 300 m)" = "#d95f02", "All assemblages" = "grey30"), name = NULL) +
+  scale_shape_manual(values = c(17, 16), name = NULL) +
+  labs(x = "Standardized effect on log diversity (posterior median, 90% CrI)", y = NULL,
+       title = "Piedemonte-only: management diversification vs bird diversity",
+       subtitle = "Region fixed, species pool ~ constant; env_pc1 + sampling adjusted.\nBoth responses; primary (< 300 m) vs all assemblages.") +
+  theme(legend.position = "bottom", plot.subtitle = element_text(size = 10))
+ggsave("Figures/Farm_mgmt_piedemonte.png", p_pied_effects, bg = "white", width = 10, height = 6.5)
+print(p_pied_effects)

@@ -1,6 +1,6 @@
 # Regional species-pool covariate from Ayerbe range maps + Suarez-Castro elevational limits ----
 
-### Per-farm "how many bird species could occur here" -- a potential-species-pool covariate. Range maps and published elevational limits are external to the point-count data, so this is NOT circular: it predicts the regional avifauna available to a farm without any knowledge of what was surveyed there. It is the one thing `Ecoregion` carries that elevation + climate + canopy in Scripts/04_farm_mgmt_mod.R do not (biogeographic species pool); see Scripts/dag.R (the SpeciesPool branch).
+### Per-farm "how many bird species could occur here" -- a potential-species-pool covariate. Range maps and published elevational limits are external to the point-count data, so this is NOT circular: it predicts the regional avifauna available to a farm without any knowledge of what was surveyed there. It is the one thing `Ecoregion` carries that elevation + climate + canopy in Scripts/04a_farm_mgmt_models.R do not (biogeographic species pool); see Scripts/dag.R (the SpeciesPool branch).
 
 ### Two-step filter per farm:
 ###   1. GEOSPATIAL -- the species' Ayerbe Colombian range polygon contains the farm (point-in-polygon).
@@ -10,7 +10,7 @@
 
 ### Outputs -> Data/Farm_species_pool.csv, treated as raw input like Data/Farm_covariates.csv. The combined Ayerbe range layer is cached in Data/Geospatial/Ayerbe_ranges.gpkg (the 1,890 shapefile reads are slow on a cold OneDrive).
 
-### OUTCOME (2026-08-29): `pool_point ~ poly(Elev,2) + poly(precip,2)` R^2 = 0.87 (unique: elev 0.29, precip 0.45, shared 0.12). Scripts/04d_species_pool_test.R tested it properly (blocks that never combine all three axes) and it does not change the management coefficients -> NOT added to 04, kept for the record. Along the way 04d + Derived/Excels/Precip_vs_elev_sensitivity.csv showed the pasture/water "signal" in the climate spec is residual PRECIPITATION confounding (Pasture_mgmt_div ~ precip r = 0.30), not a missing species-pool axis; see Project_notes.md.
+### OUTCOME (2026-08-29): `pool_point ~ poly(Elev,2) + poly(precip,2)` R^2 = 0.87 (unique: elev 0.29, precip 0.45, shared 0.12). Scripts/04b_farm_mgmt_robustness.R (pool_blocks section) tested it properly (blocks that never combine all three axes) and it does not change the management coefficients -> NOT added to 04a, kept for the record. Along the way the pool_blocks section + Derived/Excels/Precip_vs_elev_sensitivity.csv showed the pasture/water "signal" in the climate spec is residual PRECIPITATION confounding (Pasture_mgmt_div ~ precip r = 0.30), not a missing species-pool axis; see Project_notes.md.
 ### OUTCOME (weighted-endemism metrics, 2026-08-31): the hypothesis holds. `pool_we` / `pool_cwe` are much LESS climate-redundant than the raw count: R^2(~ poly(elev,2)+poly(precip,2)) drops from 0.87 (pool_point) to 0.43-0.45, and the within-Ecoregion fraction rises from 0.22 to 0.72. They are negatively correlated with `pool_point` (r ~ -0.5) -- a genuinely different axis: the Andean coffee region (Cafetera) and Boyaca-Santander are the endemism hotspots, the species-rich lowlands (Piedemonte, Bajo Magdalena) are endemism-poor. `pool_rr` (raw count < 50k km2) stays climate-bound (R^2 0.85, r_elev 0.90 -- restricted-range birds are overwhelmingly Andean, so counting them tracks elevation); `pool_wes` (softer weight) is intermediate (0.66). So the full 1/range weighting (`pool_we`, or `pool_cwe`) is the one worth testing in 04d / 04h as the compositional biogeographic axis the raw count misses. Caveats: still r ~ 0.6 with elevation and ~0.48 R^2 with Ecoregion (not clean); the metric has a huge dynamic range driven by a handful of ultra-narrow-range species, so check robustness (drop-one-species).
 
 # Setup ----
@@ -158,7 +158,7 @@ cat("\nelevation filter keeps", round(100 * mean(pool_eco$pool_point / pool_eco$
 
 # How climate-redundant is each pool metric? ----
 
-### The go / no-go test: `pool_point` is ~87% a climate composite and adds nothing to Scripts/04 (Scripts/04d). A range-rarity-weighted metric earns a place only if it carries variation that elevation + precipitation do NOT -- i.e. a LOWER `r2_climate_poly` and a HIGHER within-Ecoregion fraction than `pool_point`.
+### The go / no-go test: `pool_point` is ~87% a climate composite and adds nothing to Scripts/04a (tested in Scripts/04d, to be folded into 04b). A range-rarity-weighted metric earns a place only if it carries variation that elevation + precipitation do NOT -- i.e. a LOWER `r2_climate_poly` and a HIGHER within-Ecoregion fraction than `pool_point`.
 
 pool_metrics <- c("pool_point", "pool_we", "pool_wes", "pool_cwe", "pool_rr")
 
