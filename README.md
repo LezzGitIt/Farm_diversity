@@ -83,14 +83,56 @@ Run in order. `00`–`02` are data prep; `03`–`05` are the management-diversif
 analysis; `06a`–`06b` are the canopy scale-of-effect analysis. Date-stamped
 outputs are picked up by consumers via `latest_file()`.
 
-- **`00_bird_diversity_estimates.R`** — farm-level bird Hill-number diversity from
-  the raw point counts (`../Ssp-bird-data-wrangling/`). Sums counts into a
-  species-by-assemblage matrix (assemblage = `[collector . farm . year-group .
-  season]`), then runs `iNEXT4steps` (nboot = 500) in **two passes**: all
-  assemblages → `Derived/Excels/Tax_div_all_farms_<date>.csv` (asymptotic q = 1/2),
-  then the low-coverage assemblages removed → `Tax_div_coverage65_<date>.csv`
-  (non-asymptotic q = 0, at Cmax, with a coverage-based SE). Self-contained; slow
-  (~1 h). Re-run only when the point-count data changes.
+- **`00_bird_diversity_estimates.R`** — assemblage-level bird Hill-number diversity
+  from the raw point counts (`../Ssp-bird-data-wrangling/`; assemblage =
+  `[collector . farm . year-group . season]`). Produces **two** estimates:
+  - **PRIMARY — point-count-standardised (iNEXT incidence).** Point count as the
+    sampling unit, visits pooled to presence/absence, diversity rarefied/
+    extrapolated to a common **number of point counts** (m\* = 6; assemblages with
+    \< 3 dropped). → `Derived/Excels/Tax_div_incidence_<date>.csv`. Carries no
+    `Num_pc` signal (effort R² ~ 0.02). **Caveats in the header** — incidence drops
+    within-point-count abundance (q1/q2 are unweighted); no coverage
+    standardisation (SC ~ 0.78 median at m\*); ~10 low-effort assemblages dropped.
+  - **SENSITIVITY — abundance, coverage-standardised.** The previous primary: sum
+    counts into a species-by-assemblage matrix, `iNEXT4steps` (nboot = 500) in two
+    passes → `Tax_div_all_farms_<date>.csv` (asymptotic q = 1/2) and
+    `Tax_div_coverage65_<date>.csv` (non-asymptotic q = 0 at Cmax + coverage SE,
+    low-coverage assemblages removed).
+  - Then a comparison section → `Figures/Incidence_vs_iNEXT.png`. Self-contained;
+    slow (~1 h, the abundance passes). Re-run only when the point-count data changes.
+    (`00b_incidence_diversity.R` is the standalone prototype — superseded by this.)
+- **`00b_incidence_diversity.R`** — *superseded.* The standalone prototype for the
+  incidence estimate now folded into `00` (PRIMARY section). Kept until `00` and the
+  downstream switch are confirmed, then delete.
+- **`04g_incidence_response.R`** — *the incidence-response arm of the primary
+  analysis.* Same two adjustment sets as `04` (climate + ecoregion, baseline + 4
+  indices) but fit on the `00` **incidence** response (ESTIMATE A,
+  point-count-standardised) with **`Num_pc` dropped** — effort is already in the
+  response. `04` (coverage/Cmax, with `Num_pc`) and `04g` (incidence, no `Num_pc`)
+  are the two responses; both carry the same climate/ecoregion specs and both the
+  primary (\< 300 m) and full assemblage sets, so the distance-cutoff sensitivity
+  is covered for both responses. →
+  `Derived/Excels/Incidence_response_{summaries,comparison}.csv`,
+  `Figures/Incidence_response_effects.png`, `Figures/Incidence_dist_sensitivity.png`.
+  Finding: headline unchanged (no strong management effect), weak signals
+  redistributed (pasture down, water / all-practices up); environment explains
+  more of the higher-q diversity.
+- **`04h_ideal_adjustment.R`** — *the DAG-ideal adjustment, off the pipeline.* Fits
+  `diversity ~ management + climate + climate² + species pool + canopy + sampling`
+  (adjust for `Ecoregion`'s mechanisms, not the factor), baseline + 4 indices ×
+  3 Hill, abundance/Cmax response, \< 300 m. Includes the collinearity assessment
+  (predictor VIF, joint posterior correlations, focal stability vs the `04` specs,
+  prior sensitivity). → `Derived/Excels/Ideal_adjustment_{summaries,collinearity,
+  prior_sens}.csv`, `Figures/Ideal_adjustment_effects.png`. Finding: the
+  environmental block is collinear (VIF 6–12) so its coefficients aren't
+  interpretable, but the management coefficient (VIF 1.5) is unaffected — identical
+  to the `04` `climate` spec.
+- **`04i_pool_endemism_model.R`** — *off the pipeline.* Swaps the raw species-pool
+  count for the range-rarity-weighted `pool_cwe` (from `01b`) in the `04h` spec and
+  two `04d`-style variants. → `Derived/Excels/Pool_endemism_{summaries,comparison}.csv`,
+  `Figures/Pool_endemism_effects.png`. Finding: the swap changes the management
+  coefficient by ~nothing and adds no fit; on the log scale `pool_cwe` is r ≈ 0.85
+  with elevation, so it's a collinear substitute, not a new axis.
 - **`01_farm_covariates.R`** — average the wrangling repo's point-count
   `Site_covs.csv` (climate normals, elevation, coordinates) to the farm →
   `Data/Farm_covariates.csv`. Re-run only when `Site_covs.csv` changes.
@@ -102,23 +144,29 @@ outputs are picked up by consumers via `latest_file()`.
   (distributions, correlations, representativeness) and how they / bird diversity
   / the farm covariates vary among the 5 ecoregions
   (`Ecoregion_variance_explained.csv`, `Figures/`).
-- **`04_farm_mgmt_mod.R`** — the analysis. Bayesian measurement-error models
-  (`brms`, `resp_se()`) of assemblage log diversity (richness q = 0, Shannon q = 1,
-  Simpson q = 2) on each diversification index, with a no-index baseline and
-  `bayes_R2`. Two region-adjustment versions (see `dag.R`): **climate + canopy**
-  (elevation + precipitation as x + x², plus 10 km canopy — the DAG-sufficient
-  primary) and **Ecoregion + canopy** (proxy robustness check). Sampling
-  controls: `log(Num_pc)`, `Num.hab` (habitat types surveyed), cyclic
-  day-of-year, `(1|Id_gcs)`, `(1|CollectorXyear)`. Primary analysis =
-  assemblages < 300 m from the farm; the full set is a sensitivity run. →
-  `Derived/Excels/Farm_mgmt_model_{data,summaries}.csv`, `Derived/models/mod_*`.
+- **`04_farm_mgmt_mod.R`** — the analysis (coverage/Cmax response; `04g` is the
+  incidence-response arm). Bayesian measurement-error models (`brms`, `resp_se()`)
+  of assemblage log diversity (richness q = 0, Shannon q = 1, Simpson q = 2) on
+  each diversification index, with a no-index baseline and `bayes_R2`. Two
+  region-adjustment versions (see `dag.R`): **climate + landscape forest + endemism
+  index** (elevation + precipitation as x + x², 10 km landscape forest cover, and
+  `pool_wes` — the DAG-sufficient primary, adjustment set 1) and **`Ecoregion`
+  alone** (proxy robustness check, adjustment set 2 exactly — the factor closes the
+  landscape-forest and species-pool backdoors itself; canopy dropped 2026-08-31).
+  Sampling controls: `log(Num_pc)`, cyclic day-of-year, `(1|Id_gcs)`,
+  `(1|CollectorXyear)`. The habitat-count term was dropped 2026-08-31 (outcome-side
+  only, coefficient ≈ 0). Primary analysis = assemblages < 300 m from the farm; the
+  full set is a sensitivity run. → `Derived/Excels/Farm_mgmt_model_{data,summaries}.csv`,
+  `Derived/models/mod_*`.
 - **`05_farm_mgmt_plots.R`** — figures from the step-`04` fits
   (`Figures/Farm_mgmt_*.png`); plot objects named for reuse in the reports / manuscript.
 - **`04c_farm_mgmt_piedemonte.R`** (+ **`05c_farm_mgmt_piedemonte_plot.R`**) — the
-  single-ecoregion cut. Reads `04`'s persisted frame, restricts to Piedemonte
-  (region fixed → regional species pool held constant), replaces the collinear
-  elevation/precipitation/canopy with their first PC, and refits. The strongest
-  test for a real management effect; the null holds.
+  single-ecoregion cut. Reads `04`'s persisted frame + the incidence export,
+  restricts to Piedemonte (region fixed → regional species pool held constant),
+  replaces the collinear elevation/precipitation/canopy with their first PC, and
+  refits for **both responses** (coverage/Cmax and incidence) across the primary
+  and full assemblage sets. The strongest test for a real management effect; the
+  null holds under both. (The drop-CollectorXyear-RE sub-check is Cmax-only.)
 - **`04d_species_pool_test.R`** (+ **`05d_species_pool_plot.R`**) — does the
   per-farm range-map species pool (`01b`) add anything to `04`? Refits the model
   with the environmental term specified many ways (species pool / elevation² /
@@ -127,10 +175,19 @@ outputs are picked up by consumers via `latest_file()`.
   coefficients; along the way it shows the weak pasture/water signal is residual
   precipitation confounding. → `Derived/Excels/{Species_pool_model_test,Precip_vs_elev_sensitivity}.csv`.
 - **`04e_spec_checks.R`** — refits the primary models under alternative
-  specifications: dropping `(1|CollectorXyear)`, dropping `resp_se()`, and three
-  response-scale / likelihood choices (Gaussian-on-log, Student-t-on-log,
-  Gaussian-on-raw). None changes the conclusion. →
+  specifications: dropping `(1|CollectorXyear)`, dropping `resp_se()`, and the
+  response-scale / likelihood choices (Gaussian on log / raw / sqrt, Student-t on
+  log). None changes the conclusion. →
   `Derived/Excels/{Spec_checks,Likelihood_sensitivity}.csv`.
+- **`04f_response_distribution.R`** — chooses the response distribution. Fits every
+  candidate `resp_se` allows (Gaussian on log / raw / sqrt, Student-t on log / raw)
+  to the baseline and All-practices models, all Hill numbers, both adjustments, and
+  compares them by LOO, posterior-predictive shape checks, and the mean–variance
+  structure of the iNEXT SE. Finding: the SE grows as ~√estimate, so sqrt is the
+  variance-stabilising scale and fits best, but the effect is invariant to the
+  choice; log is kept for multiplicative interpretation + positivity. →
+  `Derived/Excels/Response_distribution_{loo,ppc_stats,scale_diag}.csv`,
+  `Figures/Response_distribution_{ppc,scale_diag}.png`. Not on the pipeline path.
 - **`06a_Extract_cc_buff.R`** — canopy-cover scale-of-effect prep. Per assemblage,
   the convex hull of its point counts buffered at 18 radii (200–2000 m by 200,
   then 3000–10 000 m by 1000); mean woody-vegetation canopy cover (Colombia WVCC
@@ -154,7 +211,14 @@ approach, preliminary results, interpretation); start here.
 `qmd/Piedemonte_report.qmd`.
 
 `01b_species_pool.R` (→ `Data/Farm_species_pool.csv`) builds the per-farm
-Ayerbe + Suárez-Castro potential species pool consumed by `04d`.
+potential species pool from Ayerbe range maps + Suárez-Castro elevational
+limits — the raw count `pool_point` (consumed by `04d`), plus
+range-rarity-weighted metrics from AVONET global range sizes: `pool_we`
+(weighted endemism Σ 1/range), `pool_cwe` (corrected), `pool_rr`
+(restricted-range count < 50,000 km²). The weighted metrics are far less
+climate-redundant than the count (R² with elevation²+precip² 0.43 vs 0.87) —
+a candidate compositional biogeographic axis for the `climate` spec, not yet
+wired into the models.
 
 Superseded, kept in `qmd/_archive/`: `02_Analysis_iNEXT.qmd`,
 `03_Farm_diversity.qmd` (superseded by `00` and `04`). **`dag.R`** — the
@@ -168,13 +232,14 @@ coefficient.
 biodiversity estimate. The whole pipeline (estimation → analysis) now runs in
 numbered `.R` scripts.
 
-**Management diversification (`04_farm_mgmt_mod.R`):** no clearly detectable
-effect, though the coefficients lean positive throughout (point estimates
-positive in 23 of 24 index × response × specification cells). In the climate +
-canopy specification, pasture and water management are weakly positive for
-richness/Shannon (90% CrI sometimes excludes zero); this attenuates toward zero
-under the `Ecoregion` specification and whenever precipitation is well
-controlled, so at least part of it is precipitation confounding. Land use and
+**Management diversification (`04_farm_mgmt_mod.R` + `04g`):** no clearly
+detectable effect, though the coefficients lean positive throughout (point
+estimates positive in 23 of 24 index × response × specification cells). In the
+climate + canopy + species-pool specification, pasture and water management are
+weakly positive for richness/Shannon (90% CrI sometimes excludes zero); this
+attenuates toward zero under the `Ecoregion` specification and whenever
+precipitation is well controlled, so at least part of it is precipitation
+confounding. Land use and
 "all practices" (the `Ecoregion`-separable indices) are near-0 under both.
 Preliminary — 69 farms, several indices incomplete.
 
@@ -183,19 +248,23 @@ precipitation are controlled for, bird richness is positively associated with
 woody-vegetation canopy cover in the surrounding landscape, peaking at ~8–9 km
 (a broad landscape signal, not a farm-scale one).
 
-The causal DAG (`dag.R`, from Aaron's hand-drawn version) gives two valid
-adjustment sets: {climate, landscape forest cover, NumPC, observer/season/year,
-species pool} — the **climate specification**, which
-needs a species-pool term because `Ecoregion` → biogeographic history → species
-pool → bird diversity is otherwise an open backdoor — or {climate, `Ecoregion`,
-NumPC} — the **`Ecoregion` specification**, which closes that path directly and
-still has to proxy climate (~80 % R²). Report both. Habitat count is a *sampling*
-covariate, not a mediator. Landscape forest cover (10 km canopy) is a precision
-covariate / `Ecoregion`-backdoor proxy — not a farmer-values backdoor (no single
-farmer moves a 10 km buffer). `NumPC` is a genuine confounder via a latent
-farm-size path (bigger farms diversify more *and* get more point counts). Two
-latent paths stay unadjusted — farmer values acting through on-farm practices the
-four indices miss, and farm area acting on diversity directly (species–area).
+The causal DAG (`dag.R`, from Aaron's hand-drawn version, simplified 2026-08-31)
+gives two valid adjustment sets: {climate, landscape forest cover, species pool,
+observer, season, year} — the **climate specification**, which needs a
+species-pool term because `Ecoregion` → biogeographic history → species pool →
+bird diversity is otherwise an open backdoor — or **`{Ecoregion}` alone** — the
+**`Ecoregion` specification**, which closes every backdoor at the source (still
+proxies climate at ~80 % R², so climate stays in that model too). Report both.
+Landscape forest cover (10 km canopy) is a precision covariate /
+`Ecoregion`-backdoor proxy — not a farmer-values backdoor (no single farmer moves
+a 10 km buffer). `NumPC` is **not** in either minimal set — its backdoor is
+already blocked by the observer (CollectorXyear) term — but is kept in `04` for
+precision and to guard a latent farm-size path (bigger farms diversify more *and*
+get more point counts). Habitat count was dropped from the DAG (outcome-side
+only; coefficient ≈ 0 in every fit). Two latent paths stay unadjusted — farmer
+values acting through on-farm practices the four indices miss, and farm area
+acting on diversity directly (species–area). See the script's
+`# Variables to consider` section.
 
 Done since: the Piedemonte-only cut (`04c`), the range-map species-pool test
 (`01b` + `04d` — adds nothing beyond elevation + precipitation), and the
