@@ -36,7 +36,7 @@ lapply(pkgs, library, character.only = TRUE)
 ggplot2::theme_set(theme_cowplot())
 conflicts_prefer(dplyr::select)
 conflicts_prefer(dplyr::filter)
-source("/Users/aaronskinner/Library/CloudStorage/OneDrive-UBC/Grad_School/Rcookbook/Themes_funs.R")
+source("/Users/aaronskinner/Library/CloudStorage/OneDrive-UBC/Academia/Rcookbook/Themes_funs.R")
 
 # Load data
 Pc_locs_dc <- vect("Derived_geospatial/shp/Pc_locs_dc.gpkg")
