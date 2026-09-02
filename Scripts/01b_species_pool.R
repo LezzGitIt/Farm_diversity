@@ -23,6 +23,8 @@ dir.create("Data/Geospatial", recursive = TRUE, showWarnings = FALSE)
 dir.create("Figures", showWarnings = FALSE)
 
 ayerbe_dir   <- "../Geospatial_data/Ayerbe_shapefiles_1890spp"
+## LOCAL external-dataset path -- not in this repo. Repoint to your copy of the
+## Ayerbe (2018) per-species elevational-range tables.
 elev_dir     <- "/Users/aaronskinner/Library/CloudStorage/OneDrive-UBC/Academia/Datasets_external/Elev_ranges"
 ranges_cache <- "Data/Geospatial/Ayerbe_ranges.gpkg"
 
@@ -84,6 +86,8 @@ message(sum(!is.na(elev_lookup$elev_lo)), " of ", nrow(elev_lookup),
 ### `pool_point` counts every species equally and is ~87% a composite of elevation + precipitation (it tracks contemporary climate / productivity, as total richness does). The RANGE-RESTRICTED component of the pool is instead set by biogeographic history (isolation, orogeny, refugia), which `Ecoregion` carries and climate does not. So a range-rarity-weighted pool should be the compositional axis that is NOT redundant with the climate terms.
 ### `Range.Size` (global extent-of-occurrence area, km^2) from AVONET1 (Tobias et al. 2022, BirdLife taxonomy). Direct name match to the Ayerbe range-polygon species covers ~95%; a genus-median fills most of the rest; the last ~2% are excluded from the weighted metrics (they still count in pool_point).
 
+## LOCAL external-dataset path -- not in this repo. Repoint to your copy of
+## AVONET1_BirdLife.csv (Tobias et al. 2022).
 avonet_path <- "/Users/aaronskinner/Library/CloudStorage/OneDrive-UBC/Academia/Datasets_external/Avonet_Data/TraitData/AVONET1_BirdLife.csv"
 avonet <- read_csv(avonet_path, show_col_types = FALSE) %>%
   transmute(name = Species1, genus = word(Species1, 1), range_km2 = as.numeric(Range.Size))
