@@ -63,7 +63,7 @@ hill_lab  <- c(richness = "Richness (q = 0)", shannon = "Shannon (q = 1)", simps
 # ================================================================== #
 # Section: piedemonte  (was Scripts/04c)                              #
 # ================================================================== #
-### Restricting to Piedemonte holds the regional species pool ~ constant. WITHIN Piedemonte elevation / precipitation / canopy are r ~ 0.91-0.94 collinear -> replaced by env_pc1 (PC1 of the three, ~95% of their joint variance). No "ecoregion" version (region is fixed). Predictors re-standardised WITHIN Piedemonte. Two responses (Cmax with Num_pc, incidence without); a Cmax-only sensitivity drops the CollectorXyear RE.
+### Restricting to Piedemonte holds the regional species pool ~ constant. WITHIN Piedemonte elevation / precipitation / canopy are r ~ 0.91-0.94 collinear -> replaced by env_pc1 (PC1 of the three, ~95% of their joint variance). No "ecoregion" version (region is fixed). Predictors re-standardised WITHIN Piedemonte. Two responses (Cmax with Num_pc, incidence without). Feeds Scripts/05 (p_pied_effects) for the Farm_mgmt_summary. (The drop-CollectorXyear-RE arm was removed 2026-09-02 along with Piedemonte_report.qmd -- the RE is a DAG-required / non-independence term, not a swappable choice.)
 
 if ("piedemonte" %in% run_sections) {
   message("\n=== Section: piedemonte ===")
@@ -102,7 +102,7 @@ if ("piedemonte" %in% run_sections) {
   write_csv(Pied, "Derived/Excels/Farm_mgmt_piedemonte_data.csv")
 
   pied_responses <- sort(unique(Pied$Hill))
-  re_terms <- c(full_re = "(1 | Id_gcs) + (1 | CollectorXyear)", no_collector = "(1 | Id_gcs)")
+  re_terms <- c(full_re = "(1 | Id_gcs) + (1 | CollectorXyear)")
 
   pied_bf <- function(row) {
     lhs <- if (row$response_type == "incidence") "inc_log_response | resp_se(inc_se_log, sigma = TRUE)"
@@ -125,11 +125,10 @@ if ("piedemonte" %in% run_sections) {
 
   ## grid order (NOT sorted) fixes which fit compiles Stan per structure -- keep the bind_rows order
   pied_grid <- bind_rows(
-    expand_grid(hill = pied_responses, index = c("baseline", div_indices), data_subset = "primary", re_spec = "full_re",     response_type = "cmax"),
-    expand_grid(hill = pied_responses, index = div_indices,                data_subset = "full",    re_spec = "full_re",     response_type = "cmax"),
-    expand_grid(hill = pied_responses, index = div_indices,                data_subset = "primary", re_spec = "no_collector", response_type = "cmax"),
-    expand_grid(hill = pied_responses, index = c("baseline", div_indices), data_subset = "primary", re_spec = "full_re",     response_type = "incidence"),
-    expand_grid(hill = pied_responses, index = div_indices,                data_subset = "full",    re_spec = "full_re",     response_type = "incidence")
+    expand_grid(hill = pied_responses, index = c("baseline", div_indices), data_subset = "primary", re_spec = "full_re", response_type = "cmax"),
+    expand_grid(hill = pied_responses, index = div_indices,                data_subset = "full",    re_spec = "full_re", response_type = "cmax"),
+    expand_grid(hill = pied_responses, index = c("baseline", div_indices), data_subset = "primary", re_spec = "full_re", response_type = "incidence"),
+    expand_grid(hill = pied_responses, index = div_indices,                data_subset = "full",    re_spec = "full_re", response_type = "incidence")
   ) %>%
     mutate(key = paste("pied", hill, index, data_subset, re_spec, response_type, sep = "__"),
            structure = paste(re_spec, response_type, if_else(index == "baseline", "baseline", "index"), sep = "__"))
@@ -335,7 +334,7 @@ if ("pool_blocks" %in% run_sections) {
 # ================================================================== #
 # Section: spec_checks  (was Scripts/04e)                             #
 # ================================================================== #
-### (a) drop (1 | CollectorXyear) -- is it acting like (1|Ecoregion)? (b) drop resp_se() -- how much does the measurement-error weighting matter? (c) response scale / likelihood family (Gaussian log/raw/sqrt, Student-t log) as a % change in diversity per +1 SD. Outcome: focal coefficient robust to all three.
+### (a) drop resp_se() -- how much does the measurement-error weighting matter? (b) response scale / likelihood family (Gaussian log/raw/sqrt, Student-t log) as a % change in diversity per +1 SD. Outcome: focal coefficient robust to both. (The "drop (1 | CollectorXyear)" variant was removed 2026-09-02 here and in the piedemonte section -- Aaron: the RE is a DAG-required / non-independence term, not a swappable choice; testing its removal fits a misspecified model.)
 
 if ("spec_checks" %in% run_sections) {
   message("\n=== Section: spec_checks ===")
@@ -350,10 +349,8 @@ if ("spec_checks" %in% run_sections) {
     ecoregion = "Ecoregion + canopy_10k_z"
   )
   variant_lhs <- c(base = "log_response | resp_se(se_log, sigma = TRUE)",
-                   no_collector = "log_response | resp_se(se_log, sigma = TRUE)",
                    no_resp_se = "log_response")
   variant_re  <- c(base = "(1 | Id_gcs) + (1 | CollectorXyear)",
-                   no_collector = "(1 | Id_gcs)",
                    no_resp_se = "(1 | Id_gcs) + (1 | CollectorXyear)")
 
   sc_frame <- function(row) {
@@ -444,12 +441,7 @@ if ("spec_checks" %in% run_sections) {
   })
   write_csv(lik_summ, "Derived/Excels/Likelihood_sensitivity.csv")
 
-  cat("\n[spec_checks] focal coefficient: base vs drop (1|CollectorXyear)\n")
-  summ %>% filter(variant %in% c("base", "no_collector")) %>%
-    select(hill, index, env, variant, focal_est) %>%
-    pivot_wider(names_from = variant, values_from = focal_est) %>%
-    mutate(shift = round(no_collector - base, 3)) %>% arrange(env, hill, index) %>% print(n = Inf)
-  cat("[spec_checks] focal coefficient: base (resp_se) vs no_resp_se\n")
+  cat("\n[spec_checks] focal coefficient: base (resp_se) vs no_resp_se\n")
   summ %>% filter(variant %in% c("base", "no_resp_se")) %>%
     select(hill, index, env, variant, focal_est) %>%
     pivot_wider(names_from = variant, values_from = focal_est) %>%
