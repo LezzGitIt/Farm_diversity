@@ -75,13 +75,13 @@ print(p_distributions)
 
 # Correlation among diversity indices and farm-level environmental covariates ----
 
-cor_vars <- c(div_index_names, "dist_predio_cercano", "WVCC_mean", "DEM_mean", "Biomasa_mean",
+## Elevation (DEM_mean) is omitted -- it is r = -0.996 with temperature; the write-up uses temperature as the single climate-temperature axis.
+cor_vars <- c(div_index_names, "dist_predio_cercano", "WVCC_mean", "Biomasa_mean",
               "Avg_temp_mean", "Tot_prec_mean")
 cor_labels <- c(
   div_index_labels,
   dist_predio_cercano = "Dist. nearest\nSCR farm",
   WVCC_mean = "Canopy\ncover",
-  DEM_mean = "Elevation",
   Biomasa_mean = "Biomass",
   Avg_temp_mean = "Temperature",
   Tot_prec_mean = "Precipitation"

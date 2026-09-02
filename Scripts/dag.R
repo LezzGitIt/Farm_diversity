@@ -19,7 +19,7 @@ dir.create("Derived/Excels", recursive = TRUE, showWarnings = FALSE)
 # FarmDiv        EXPOSURE. One of the four [0-1] farm-management diversification indices from Maria Esquivel (Land_use_div / Water_mgmt_div / Pasture_mgmt_div / All_practices_div). One model per index.
 # BirdDiv        OUTCOME. The iNEXT Hill-number diversity estimate for the assemblage (q = 0/1/2), i.e. the *observed / estimated* diversity -- so every sampling variable points into it. Point-count duration differences across datasets are NOT a node: iNEXT's individual-based accumulation + coverage standardisation already absorb them.
 # Ecoregion      5-level biogeographic region. A coarse categorical summary of Climate + LandForest + BiogeoHistory; the SCR programme also rolled out differently by region, so it also sits upstream of FarmDiv.
-# Climate        Farm-mean precipitation + elevation (confirmed: elevation IS part of this node; temperature is r = -0.99 with elevation so dropped). Two columns (Elev_mean, Tot_prec_mean), entered as poly(.,2) in 04.
+# Climate        Farm-mean temperature + precipitation. Two columns (Avg_temp_mean, Tot_prec_mean), entered as poly(.,2) in 04. NB the models currently fit ELEVATION as the temperature proxy (Elev_mean, r = -0.996 with Avg_temp_mean); the write-up and this DAG describe it as temperature and the switch to Avg_temp_mean is on the backlog (numerically near-identical).
 # BiogeoHistory  UNOBSERVED biogeographic / evolutionary history of the region (Andean uplift, Pleistocene refugia, dispersal barriers). A cause of the regional SpeciesPool that Climate does not capture. No arrow to FarmDiv except through Ecoregion.
 # SpeciesPool    Regional potential species pool -- how many / which species could occur at the farm. Caused by BiogeoHistory AND Climate. Partially MEASURED: Scripts/01b_species_pool.R builds a range-map richness count (pool_point) plus range-rarity-weighted variants (pool_wes / pool_cwe); Scripts/04b (pool_blocks / endemism_pool sections) tests them. The compositional / endemism part is only partly captured. On the path Ecoregion -> BiogeoHistory -> SpeciesPool -> BirdDiv, so the climate spec (no Ecoregion factor) blocks that backdoor only via the endemism-index proxy -- this is why the Ecoregion spec stays as a DAG-valid adjustment, not just a robustness check.
 # EndemismIndex  OBSERVED. Range-rarity-weighted endemism index (pool_wes = Sum 1000/sqrt(global range km^2), Scripts/01b_species_pool.R -- Ayerbe range polygons + AVONET ranges), z-scored. A measured PROXY for BiogeoHistory: the range-restricted part of the regional pool tracks biogeographic history, not contemporary climate (the raw range-map count pool_point tracks climate and is ~redundant with elev + precip). Entered in the 04a `climate` spec to help block Ecoregion -> BiogeoHistory -> SpeciesPool -> BirdDiv. PARTIAL only -- pool_wes is r ~ 0.8 with elevation, R^2 ~ 0.5 with Ecoregion, so it is not a stand-in for conditioning on SpeciesPool itself; the `ecoregion` spec stays as the check. A leaf node (no arrow to BirdDiv or FarmDiv), so adding it does not change the adjustment sets.
@@ -113,12 +113,12 @@ cat("\n== Total-effect adjustment (canonical) ==\n"); print(total_can)
 # Points:
 #   - FarmDiv's ONLY parent is Ecoregion, so every backdoor runs FarmDiv <- Ecoregion -> ... -> BirdDiv. Conditioning on Ecoregion (set 2) closes all of them -- nothing else is strictly required. The Ecoregion spec is exactly the minimal adjustment.
 #   - Since Climate -> FarmDiv was removed, Climate is no longer a fork on the exposure. In set (1) it is still needed -- to block FarmDiv <- Ecoregion -> Climate -> BirdDiv (and the Climate -> LandForest / -> SpeciesPool legs) without conditioning on Ecoregion -- but it is NOT needed on top of Ecoregion in set (2).
-#   - Set (1) REQUIRES a SpeciesPool term: FarmDiv <- Ecoregion -> BiogeoHistory -> SpeciesPool -> BirdDiv is a backdoor Climate + LandForest do NOT block. The 04a `climate` spec carries the endemism index (pool_wes = the observed EndemismIndex proxy for BiogeoHistory) for exactly this. PARTIAL block only -- pool_wes is r ~ 0.8 with elevation, R^2 ~ 0.5 with Ecoregion -- so the Ecoregion spec is kept as the check. Scripts/04b (pool_blocks: the range-map count pool_point; endemism_pool: the range-rarity-weighted pool_cwe) confirms no pool variant moves the management coefficient.
+#   - Set (1) REQUIRES a SpeciesPool term: FarmDiv <- Ecoregion -> BiogeoHistory -> SpeciesPool -> BirdDiv is a backdoor Climate + LandForest do NOT block. The 04a `climate` spec carries the endemism index (pool_wes = the observed EndemismIndex proxy for BiogeoHistory) for exactly this. PARTIAL block only -- pool_wes is |r| ~ 0.8 with temperature, R^2 ~ 0.5 with Ecoregion -- so the Ecoregion spec is kept as the check. Scripts/04b (pool_blocks: the range-map count pool_point; endemism_pool: the range-rarity-weighted pool_cwe) confirms no pool variant moves the management coefficient.
 #   - Observer + Year together handle the sampling side of set (1): conditioning on Observer blocks FarmDiv <- Ecoregion -> Observer -> {NumPC, Season, BirdDiv}, but it also opens the collider path FarmDiv <- Ecoregion -> [Observer] <- Year -> BirdDiv, so Year is then required too. In 04 both are folded into the CollectorXyear RE (Year was near-collinear with Observer).
 #   - NumPC is NOT a required confounder in this DAG: its only backdoor (Ecoregion -> Observer -> NumPC -> BirdDiv) is already blocked by conditioning on Observer. It is kept in 04 for PRECISION and to guard the unmeasured FarmDiv <- FarmSize -> NumPC -> BirdDiv path (see "Variables to consider"). Canopy was ALSO pure precision in the Ecoregion spec and was dropped 2026-08-31 -- that spec is now Ecoregion alone (exactly set 2).
 #   - A combined "Ecoregion + Climate + pool" model is over-specified and unidentifiable at this collinearity. Skip it.
 #   - Two unmeasured paths are NOT closed by any set here (see "Variables to consider"): FarmerValues -> on-farm practices the 4 indices miss -> BirdDiv, and FarmSize -> BirdDiv directly (species-area). Both push a null toward positive, so "consistent with no effect" is the honest reading.
-# => 04a `climate` spec   = poly(Elev,2) + poly(Precip,2) + canopy_10k + pool_wes + CollectorXyear RE + doy + NumPC  (= minimal set 1: Climate + LandForest + SpeciesPool [via the pool_wes proxy] + Observer/Year [via the RE] + Season [via doy]; PLUS NumPC for precision).
+# => 04a `climate` spec   = poly(Temp,2) + poly(Precip,2) + canopy_10k + pool_wes + CollectorXyear RE + doy + NumPC  (= minimal set 1: Climate + LandForest + SpeciesPool [via the pool_wes proxy] + Observer/Year [via the RE] + Season [via doy]; PLUS NumPC for precision). NB Temp is currently fitted as Elev_mean (r = -0.996); switch to Avg_temp_mean is on the backlog.
 #    04a `ecoregion` spec = Ecoregion + CollectorXyear RE + doy + NumPC  (= minimal set 2 = {Ecoregion} exactly; PLUS doy / NumPC / RE as nuisance / precision).
 #    Report both; they agree the effect is ~0 once precipitation is well controlled. LOO for the doy / RE nuisance terms: deferred (backlog).
 #    (Writeup names for the two specs are still being chosen -- e.g. "Component" / "Ecoregion" -- the code ids stay `climate` / `ecoregion`.)
@@ -163,7 +163,7 @@ if (file.exists(data_path)) {
 
 spec_map <- tribble(
   ~spec,        ~adjusts,                                                              ~role,
-  "climate",    "poly(Elev,2) + poly(Precip,2) + canopy_10k + pool_wes + CollectorXyear RE + doy + NumPC", "minimal set 1, fully observed: Climate + LandForest + SpeciesPool (via the pool_wes endemism-index proxy) + Observer/Year (via the RE) + Season (via doy); PLUS NumPC for precision. The primary spec",
+  "climate",    "poly(Temp,2) + poly(Precip,2) + canopy_10k + pool_wes + CollectorXyear RE + doy + NumPC", "minimal set 1, fully observed: Climate + LandForest + SpeciesPool (via the pool_wes endemism-index proxy) + Observer/Year (via the RE) + Season (via doy); PLUS NumPC for precision. The primary spec (Temp currently fitted as Elev_mean, r = -0.996)",
   "ecoregion",  "Ecoregion + CollectorXyear RE + doy + NumPC",                            "minimal set 2 = {Ecoregion} exactly -- the factor closes the Climate, LandForest and BiogeoHistory->SpeciesPool backdoors at the source. PLUS doy / NumPC / RE as nuisance / precision. Canopy dropped 2026-08-31 (pure precision here). The conservative bracket",
   "(combined)", "Ecoregion + Climate + pool together",                                   "NOT USED -- over-specified, unidentifiable at ~0.8 collinearity. The canonical adjustment set adds nothing over {Ecoregion} for the focal coefficient"
 )
@@ -182,7 +182,7 @@ node_labels <- c(
   FarmDiv       = "Farm \ndiversification",
   BirdDiv       = "Bird\ndiversity",
   Ecoregion     = "Ecoregion",
-  Climate       = "Climate\n(elev + precip)",
+  Climate       = "Climate\n(temp + precip)",
   BiogeoHistory = "Biogeographic\nhistory",
   EndemismIndex = "Endemism\nindex",
   SpeciesPool   = "Regional\nspecies pool",
@@ -235,16 +235,12 @@ p_dag <- ggplot() +
   geom_point(data = nodes, aes(x, y, colour = role), size = 30) +
   geom_text(data = nodes, aes(x, y, label = label), colour = "white",
             fontface = "bold", size = 3.35, lineheight = 0.9) +
-  scale_colour_manual(values = role_cols, name = NULL) +
+  scale_colour_manual(values = role_cols, guide = "none") +
   coord_equal(clip = "off") +
   expand_limits(x = c(-0.4, 15.0), y = c(1.7, 9.0)) +
-  labs(title = "Assumed causal structure: farm management diversification -> bird diversity",
-       subtitle = "Left: Ecoregion and the region / environment drivers it summarises. Right: the sampling covariates.\nTwo DAG-valid adjustments: {Climate, LandForest, SpeciesPool, Observer, Season, Year} or {Ecoregion} alone.\nGrey = unobserved. The endemism index is the measured proxy for biogeographic history; see the script for variables held out.") +
-  theme(legend.position = "bottom",
-        legend.text = element_text(size = 14),
-        plot.title = element_text(size = 18),
-        plot.subtitle = element_text(size = 12),
-        plot.margin = margin(8, 8, 8, 8))
+  labs(title = NULL, subtitle = NULL) +
+  theme(legend.position = "none",
+        plot.margin = margin(4, 4, 4, 4))
 
-ggsave("Figures/DAG.png", p_dag, width = 19, height = 8, bg = "white")
+ggsave("Figures/DAG.png", p_dag, width = 19, height = 6.5, bg = "white")
 print(p_dag)
