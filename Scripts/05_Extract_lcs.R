@@ -21,7 +21,7 @@
 
 # Something weird going on with image_date -- trace backwards to understand where date errors are coming from
 
-# Load libraries & Rdata --------------------------------------------------
+# Load libraries & data --------------------------------------------------
 pkgs <- c(
   "terra", "tidyterra", "sf", "tidyverse", "cowplot", "maptiles",
   "xlsx", "readxl", "gridExtra", "ggpubr", "conflicted", "janitor"
@@ -38,16 +38,29 @@ ggplot2::theme_set(theme_cowplot())
 conflicts_prefer(dplyr::select)
 conflicts_prefer(dplyr::filter)
 conflicted::conflicts_prefer(terra::intersect)
-source("/Users/aaronskinner/Library/CloudStorage/OneDrive-UBC/Grad_School/Rcookbook/Themes_funs.R")
-load("Rdata/the_basics_05.10.25.Rdata")
+source("/Users/aaronskinner/Library/CloudStorage/OneDrive-UBC/Academia/Rcookbook/Themes_funs.R")
+
+# Load data
+Event_covs_pcs <- read_csv(file = "Derived/Excels/Event_covs_pcs.csv")
+Pc_locs_dc <- vect("Derived_geospatial/shp/Pc_locs_dc.gpkg") 
+
+# Rm Ubc El Hatico points -------------------------------------------------
+
+Pc_locs_dc <- Pc_locs_dc %>% filter(Id_group != "UBC-MB-VC-EH")
 
 # Which shapefile?  -------------------------------------------------------
 # This determines which file is processed & ultimately exported 
 tbl_row <- 3 # 1 = middle, 2 = past, 3 = ubc
 
 # Create Index_tbl
-Uniq_db <- unique(Bird_pcs$Uniq_db)
-Index_tbl <- tibble(name = c("middle", "past", "ubc"), index = c(2,3,4), data_collector = list(Uniq_db[c(1:4,6)], c("Gaica mbd", "Cipav mbd"), "Ubc mbd"))
+Uniq_db <- Event_covs_pcs %>% 
+  pull(Uniq_db) %>% 
+  unique()
+Index_tbl <- tibble(
+  name = c("middle", "past", "ubc"), 
+  index = c(2,3,4), 
+  data_collector = list(Uniq_db[c(1:4,6)], c("Gaica mbd", "Cipav mbd"), "Ubc mbd")
+  )
 
 # Bring in data -----------------------------------------------------------
 #Mathilde shapefiles
@@ -58,12 +71,13 @@ files.shp2 <- setdiff(files.shp, files.ignore)
 
 shp.lc.L <- map(.x = files.shp2, \(shp)
                 vect(paste0(path, "/", shp)) %>%
-                  clean_names())
+                  clean_names()
+                )
 files.shp3 <- str_remove(files.shp2, ".gpkg")
 names(shp.lc.L) <- files.shp3
 
 # Formatting LC dataframes
-shp.lc.L[c(2:4)] <- map(shp.lc.L[c(2:4)], \(polys){
+shp.lc.L[c(2:5)] <- map(shp.lc.L[c(2:5)], \(polys){
   polys_df <- polys %>% mutate(
     #poly_num = row_number(),
     image_date = as.Date(image_date),
@@ -72,11 +86,18 @@ shp.lc.L[c(2:4)] <- map(shp.lc.L[c(2:4)], \(polys){
   )
 })
 
+shp.lc.L$landcovers_el_hatico_final %>% pull(image_date) %>% unique()
+
+# Visualize El Hatico
+ggplot() + geom_spatvector(data = shp.lc.L$landcovers_el_hatico_final) + 
+  geom_spatvector(data = shp.lc.L[[1]]) + # Individual trees
+  geom_spatvector(data = shp.lc.L[[tbl_row + 1 + 3]])
+
 # Subset individual trees -------------------------------------------------
 ## The individual trees file was not differentiated by the data collection year, given that individual trees left in pasture did not change much over the project. 
 # Thus, our objective is to subset the individual trees to only the relevant IDs if we are working with UBC or past shapefiles
 if((tbl_row + 1) %in% c(3,4)){
-  shp.lc.L[[1]] <- intersect(shp.lc.L[[tbl_row + 1]], shp.lc.L[[1]])
+  shp.lc.L[[1]] <- terra::intersect(shp.lc.L[[tbl_row + 1]], shp.lc.L[[1]])
 }
 
 # Visualize 
@@ -89,8 +110,8 @@ ggplot() + geom_spatvector(data = shp.lc.L[[tbl_row + 1]]) +
 # Add LC
 shp.lc.L[c(1, 5:7)] <- map2(
   shp.lc.L[c(1, 5:7)], c("distrees", rep("livefence", 3)),
-  \(lc, lc_typ){
-    lc %>% mutate(lc_typ = lc_typ)
+  \(lc, lc_type){
+    lc %>% mutate(lc_typ = lc_type)
   }
 )
 
@@ -150,22 +171,20 @@ if(FALSE){
     geom_spatvector(data = Lcs_comb2, aes(fill = lc_typ2), alpha = .4) +
     #geom_spatvector(data = cropped_lcs, aes(fill = lc_typ2), alpha = .8) +
     geom_spatvector(data = Buff_50m, alpha = .3) +
-    geom_sf(data = Pc_locs_sf, size = .5) + 
+    geom_sf(data = Pc_locs_dc, size = .5) + 
     coord_sf(xlim = c(-73.683, -73.666), ylim = c(3.323, 3.343))
 }
 
 # Extract LC  -------------------------------------------------------------
-Pc_vect <- Pc_locs_sf %>% 
+Pc_locs_dc2 <- Pc_locs_dc %>% 
   filter(Uniq_db %in% Index_tbl[[tbl_row, "data_collector"]][[1]]) %>%
-  vect() %>% 
   project("EPSG:4686") 
-Pc_vect_proj <- Pc_vect %>% project("EPSG:3116")
+Pc_locs_dc_proj <- Pc_locs_dc2 %>% project("EPSG:3116")
 
 # ALTERNATIVE APPROACH NEW DOESN'T WORK
 if(FALSE){
-  Pc_vect <- Pc_locs_sf %>% 
+  Pc_locs_dc_proj <- Pc_locs_dc %>% 
     distinct(Ecoregion, Departamento, Id_group, Id_muestreo, geometry) %>%
-    vect() %>% 
     project("EPSG:4686")
 }
 
@@ -180,8 +199,8 @@ if(FALSE){
 Buffer_rad_nmr <- seq(from = 300, to = 50, by = -50)
 Buffer_rad_nmr <- setNames(Buffer_rad_nmr, Buffer_rad_nmr)
 Buffers <- map(Buffer_rad_nmr, \(rad){
-  Pc_vect %>% buffer(rad) %>% 
-    select(Uniq_db, Ecoregion, Departamento, Id_group, Id_muestreo)
+  Pc_locs_dc2 %>% buffer(rad) %>% 
+    select(Ecoregion, Departamento, Id_group, Id_muestreo)
 })
 
 ##  Intersect each buffer with the landcover object
@@ -213,14 +232,35 @@ Sys.time() - start
 
 # Return back to a single SpatVector
 Snapped_lcs <- Snapped_lcs_l %>% vect()
+#Snapped_lcs <- Intersect_lcs %>% snap(tolerance = 5)
 
 # Export ------------------------------------------------------------------
 ## Export cropped landcover shapefile - The polygons that mathilde digitized that have been processed in this R script
-Snapped_lcs %>% 
-  terra::writeVector(paste0("Derived_geospatial/shp/R_processed/Snapped_", Index_tbl[[tbl_row, "name"]], ".gpkg"), overwrite = TRUE) #, overwrite = TRUE
+Snapped_lcs #%>% 
+  #terra::writeVector(paste0("Derived_geospatial/shp/R_processed/Snapped_", Index_tbl[[tbl_row, "name"]], ".gpkg")) #, overwrite = TRUE
 stop()
 
 # Extras -----------------------------------------------------------------
+# >Forest_typ -------------------------------------------------------------
+# WORKING
+Site_covs <- read_csv(file = "Derived/Excels/Site_covs.csv")
+Forest_typ_tbl <- Snapped_lcs[Pc_locs_dc_proj,] %>% 
+  distinct(Id_muestreo, forest_typ) %>% 
+  filter(!is.na(forest_typ)) %>%
+  as_tibble()
+Event_covs_pcs[,c("Id_muestreo", "Id_muestreo_no_dc", "Ano")] %>%
+  filter(Ano == 2019) %>%
+  left_join(Site_covs[,c("Id_muestreo_no_dc", "Habitat")]) %>% 
+  filter(Habitat == "Bosque") %>% 
+  distinct() %>% 
+  left_join(Forest_typ_tbl) %>%
+  group_by(Id_muestreo_no_dc) %>%
+  fill(forest_typ) %>%
+  ungroup() %>%
+  #distinct(Id_muestreo_no_dc, forest_typ) %>%
+  filter(is.na(forest_typ)) %>% 
+  pull(Id_muestreo)
+
 # >Zoom in og LC file -------------------------------------------
 # Use the extent of a problematic set of polygons to examine the original shapefile
 bbox <- terra::ext(Intersect_lcs$`G-MB-M-A_01-B`)  # Extract extent
@@ -457,8 +497,8 @@ valid_polys2 <- valid_polys #%>% filter(!poly_num %in% Prob_poly_id)
 
 # >Subsetting -------------------------------------------------------------
 # Large rasters, can be helpful to subset to more manageable size
-join_group <- Pc_locs_sf %>% distinct(Id_muestreo, Id_group)
-Id_buff <- expand_grid(Id_muestreo = Pc_locs_sf$Id_muestreo, 
+join_group <- Pc_locs_dc %>% distinct(Id_muestreo, Id_group)
+Id_buff <- expand_grid(Id_muestreo = Pc_locs_dc$Id_muestreo, 
                        Buffer_rad = names(Buffers)) %>% 
   left_join(join_group)
 
