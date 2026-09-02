@@ -193,7 +193,8 @@ p_incidence_effects <- focal_both_responses %>%
   facet_grid(Spec ~ Hill) +
   labs(x = "Standardized diversification-index effect on log diversity (90% CrI)", y = NULL,
        title = "Management effect: coverage/Cmax response vs point-count-standardised response") +
-  theme(legend.position = "bottom")
+  ## extra right margin so the rotated facet_grid strip labels ("Component" / "Ecoregion") are not clipped when scaled into the PDF text column
+  theme(legend.position = "bottom", plot.margin = margin(6, 16, 6, 6))
 ggsave("Figures/Incidence_response_effects.png", p_incidence_effects, bg = "white", width = 11, height = 7, dpi = 150)
 print(p_incidence_effects)
 
@@ -230,7 +231,8 @@ p_dist_sensitivity <- ggplot(dist_both, aes(est, Index, colour = Response, shape
   labs(x = "Standardized diversification-index effect on log diversity (90% CrI)", y = NULL,
        title = "Distance-to-farm cutoff sensitivity, both responses",
        subtitle = "Point counts averaging < 300 m from the farm (filled) vs all assemblages (open).") +
-  theme(legend.position = "bottom", panel.spacing.x = unit(1, "lines"))
+  ## extra right margin so the rotated facet_grid strip labels ("Component spec" / "Ecoregion spec") are not clipped when scaled into the PDF text column
+  theme(legend.position = "bottom", panel.spacing.x = unit(1, "lines"), plot.margin = margin(6, 16, 6, 6))
 ggsave("Figures/Dist_sensitivity_combined.png", p_dist_sensitivity, bg = "white", width = 11, height = 7.5, dpi = 150)
 print(p_dist_sensitivity)
 

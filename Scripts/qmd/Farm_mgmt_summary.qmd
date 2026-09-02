@@ -8,6 +8,9 @@ format:
     number-sections: true
     fig-pos: "H"
     geometry: margin=1in
+    include-in-header:
+      text: |
+        \usepackage{fvextra}
 execute:
   echo: false
   warning: false
@@ -37,7 +40,7 @@ idx_prec_r <- map_dbl(names(index_lab)[-1], ~ cor(md[[.x]], md$Tot_prec_mean, us
 ```
 
 Source code and data-processing pipeline:
-<https://github.com/LezzGitIt/Farm_diversity> (start with `README.md`).
+<https://github.com/LezzGitIt/Farm_diversity>
 
 # The question
 
@@ -132,15 +135,19 @@ shows there are two valid adjustment sets: 1) the 'Ecoregion' model, and
 
 The 'Ecoregion' specification: **`Ecoregion`** + sampling covariates
 
-```         
+```{=latex}
+\begin{Verbatim}[breaklines=true, breakanywhere=true, fontsize=\small, samepage=true]
 log(diversity) | resp_se(se, sigma = TRUE) ~ diversification_index + ecoregion + log(Number_surveys) + julian_day (sin) + julian_day (cos) + (1 | farm) + (1 | collector-year)
+\end{Verbatim}
 ```
 
 The 'component' specification: *temperature + precipitation + landscape
 forest + endemism index*
 
-```         
+```{=latex}
+\begin{Verbatim}[breaklines=true, breakanywhere=true, fontsize=\small, samepage=true]
 log(diversity) | resp_se(se, sigma = TRUE) ~ diversification_index + endemism_index + landscape_forest + temperature + temperature^2 + precipitation + precipitation^2 + log(Number_surveys) + julian_day (sin) + julian_day (cos) + (1 | farm) + (1 | collector-year)
+\end{Verbatim}
 ```
 
 ## Model terms
@@ -555,11 +562,13 @@ one is not. Built by
 `Scripts/00`.](/Figures/Incidence_vs_iNEXT.png){#fig-inc-vs-cmax
 width="100%"}
 
-![Diversification-index coefficient under each response (orange =
-abundance / Cmax with `Num_pc`; blue = incidence at 6 point counts,
-`Num_pc` dropped), both environmental specifications. Built by
-`Scripts/04a`.](/Figures/Incidence_response_effects.png){#fig-inc-effects
-width="100%"}
+```{r}
+#| label: fig-inc-effects
+#| fig-cap: "Diversification-index coefficient under each response (orange = abundance / Cmax with `Num_pc`; blue = incidence at 6 point counts, `Num_pc` dropped), both environmental specifications. Built by `Scripts/04a`."
+#| fig-width: 9
+#| fig-height: 6
+bare(p_incidence_effects)
+```
 
 ## Choosing the landscape-forest radius (scale of effect)
 
@@ -608,13 +617,13 @@ set against all assemblages, for both response variables. The
 coefficients move toward zero when the off-farm assemblages are
 included.
 
-![Distance-to-farm cutoff sensitivity (`Scripts/05`, from `Scripts/04a`
-output): the diversification-index coefficient on the primary (\< 300 m)
-set (filled) vs all assemblages (open), for both responses (orange =
-coverage / Cmax with `Num_pc`; blue = incidence at m\* = 6 with `Num_pc`
-dropped) and both specifications, all three Hill
-numbers.](/Figures/Dist_sensitivity_combined.png){#fig-dist
-width="100%"}
+```{r}
+#| label: fig-dist
+#| fig-cap: "Distance-to-farm cutoff sensitivity (`Scripts/05`, from `Scripts/04a` output): the diversification-index coefficient on the primary (< 300 m) set (filled) vs all assemblages (open), for both responses (orange = coverage / Cmax with `Num_pc`; blue = incidence at m* = 6 with `Num_pc` dropped) and both specifications, all three Hill numbers."
+#| fig-width: 9
+#| fig-height: 6.5
+bare(p_dist_sensitivity)
+```
 
 ## Model checks {#sec-model-checks}
 
