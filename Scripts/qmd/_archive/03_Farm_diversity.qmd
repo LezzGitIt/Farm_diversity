@@ -15,12 +15,17 @@ format:
 {{< pagebreak >}}
 
 ::: callout-note
-**Reference document — not part of the reproducible pipeline.** This is the
-exploratory negative-binomial GLMM (bird richness ~ ecoregion + sampling
-covariates, no management predictor) that motivated the linking analysis. It is
-kept for the write-up and caveats; it writes no files and nothing downstream
-reads it. The running analysis is `Scripts/04_farm_mgmt_mod.R`, which folds a
-no-index baseline spec into the Bayesian measurement-error model.
+**Superseded — kept for history, not part of the reproducible pipeline.** This is
+the exploratory negative-binomial GLMM (bird richness ~ ecoregion + sampling
+covariates, no management predictor) that motivated the linking analysis. It
+writes no files and nothing downstream reads it. The running analysis is
+`Scripts/04a_farm_mgmt_models.R`, which folds a no-index baseline spec into the
+Bayesian measurement-error model.
+
+The negative-binomial likelihood here is superseded: the response is an
+iNEXT-estimated diversity at standardised coverage — a continuous quantity with a
+known standard error — not a raw count, so `04a` models it Gaussian-on-log with
+`resp_se()` carrying that per-estimate SE.
 :::
 
 # Goal

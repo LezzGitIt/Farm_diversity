@@ -41,6 +41,10 @@ Scripts/
 
   qmd/
     Farm_mgmt_summary.qmd         # The whole-story synthesis: question, approach, results
+    _archive/                     # Superseded write-ups, kept for methods history only -- NOT
+                                  #   part of the run order. 02_Analysis_iNEXT.qmd = the Cmax /
+                                  #   iNEXT-4steps rationale behind 00; 03_Farm_diversity.qmd =
+                                  #   the old negative-binomial GLMM that motivated the analysis.
 ```
 
 `00`–`02b` are data prep plus the landscape-forest scale-of-effect analysis;
