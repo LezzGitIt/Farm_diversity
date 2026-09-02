@@ -1,7 +1,5 @@
 # Does farm-management diversification benefit bird diversity?
 
-**Aaron Skinner**
-
 ## Overview
 
 This repository contains the analysis code linking farm-level **management
@@ -12,22 +10,11 @@ Bird diversity is summarised as iNEXT Hill numbers (richness q = 0, Shannon
 q = 1, Simpson q = 2) estimated per `[collector . farm . year-group . season]`
 assemblage from standardised point counts. Farm management is summarised by four
 `[0-1]` diversification indices — land use, water management, pasture management,
-and an overall "all practices" composite — compiled by Maria Esquivel. The two
-datasets are joined on farm ID (69 farms have both).
-
-The central problem is confounding: bird diversity at this scale is mostly a
-between-ecoregion story, and the diversification indices are themselves
-structured by ecoregion. The analysis adjusts for the environmental mechanisms
-that `Ecoregion` stands for (elevation, precipitation, landscape forest cover, a
-regional-endemism index) and, as a bracketing robustness check, for the
-`Ecoregion` factor itself. **Preliminary result: no clearly detectable effect of
-management diversification on bird diversity** — the coefficients lean weakly
-positive but credible intervals include zero, and the weak pasture/water signal
-that appears under climate adjustment is residual precipitation confounding.
+and an overall "all practices" composite — compiled by Maria Jimena Esquivel. The
+two datasets are joined on farm ID (69 farms have both).
 
 The full writeup is `Scripts/qmd/Farm_mgmt_summary.qmd` (renders to PDF):
 question, confounding structure, approach, preliminary results, interpretation.
-Start there.
 
 ## Repository structure
 
@@ -48,19 +35,17 @@ Scripts/
   04a_farm_mgmt_models.R         # PRIMARY analysis: bird diversity ~ each diversification index,
                                  #   two responses x two adjustment sets, Bayesian measurement-error models (brms)
   04b_farm_mgmt_robustness.R     # Specification checks (toggleable sections): single-ecoregion cut,
-                                 #   species-pool terms, random-effect / measurement-error / likelihood checks,
+                                 #   species-pool terms, measurement-error / likelihood checks,
                                  #   DAG-ideal adjustment + collinearity, spline vs quadratic environment
   05_farm_mgmt_plots.R           # Every figure for the management question (reads 04a/04b output; never refits)
 
   qmd/
-    Farm_mgmt_summary.qmd         # The whole-story synthesis (start here)
-    04_exploratory_report.qmd     # Exploratory figures + analysis plan
-    05_farm_mgmt_mod_report.qmd   # Model results + scale-of-effect figures
-    Piedemonte_report.qmd         # The single-ecoregion cut, written up on its own
+    Farm_mgmt_summary.qmd         # The whole-story synthesis: question, approach, results
 ```
 
 `00`–`02b` are data prep plus the landscape-forest scale-of-effect analysis;
-`03`–`05` are the management-diversification analysis. Generated data, models and
+`03` is exploratory work to understand the data;
+`04`–`05` are the management-diversification analysis. Generated data, models and
 figures are written to `Data/`, `Derived/` and `Figures/` and are not tracked.
 
 ## Running the analysis
@@ -79,7 +64,7 @@ source("Scripts/04b_farm_mgmt_robustness.R")      # the sensitivity checks
 source("Scripts/05_farm_mgmt_plots.R")
 ```
 
-Then render the reports from the project root, e.g.:
+Then render the report from the project root:
 
 ``` bash
 quarto render Scripts/qmd/Farm_mgmt_summary.qmd
@@ -88,8 +73,8 @@ quarto render Scripts/qmd/Farm_mgmt_summary.qmd
 ## Data availability
 
 The bird point-count data come from the data paper *"Bird diversity in working
-landscapes of Colombia"* (Skinner et al.), currently in review; they are not yet
-public. The farm-management diversification indices were provided by Maria
+landscapes of Colombia"* (Skinner et al.), currently in prep; they are not yet
+public. The farm-management diversification indices were provided by Maria Jimena
 Esquivel. Neither dataset is distributed in this repository at this stage.
 
 ## Dependencies
