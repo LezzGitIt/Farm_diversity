@@ -21,9 +21,9 @@ index_labels <- c(
 )
 index_order <- unname(index_labels)
 
-## climate = the DAG-sufficient primary (elev² + precip² + landscape forest + endemism index); ecoregion = the proxy robustness check, Ecoregion alone (Scripts/dag.R)
-spec_labels <- c(climate = "Climate + landscape forest + endemism index", ecoregion = "Ecoregion")
-spec_colours <- c("Climate + landscape forest + endemism index" = "#762a83", "Ecoregion" = "#1b7837")
+## climate (= the 'component' spec in the write-up) = the DAG-sufficient primary (temp² + precip² + landscape forest + endemism index); ecoregion = the proxy robustness check, Ecoregion alone (Scripts/dag.R)
+spec_labels <- c(climate = "Component", ecoregion = "Ecoregion")
+spec_colours <- c(Component = "#762a83", Ecoregion = "#1b7837")
 
 hill_labels <- c(richness = "Richness (q = 0)", shannon = "Shannon (q = 1)", simpson = "Simpson (q = 2)")
 hill_order <- unname(hill_labels)
@@ -67,7 +67,7 @@ p_index_effects <- Primary %>%
   labs(
     x = "Standardized effect on log diversity (posterior median, 90% CrI)", y = NULL,
     title = "Farm management diversification vs bird diversity",
-    subtitle = "1-SD increase in each index; assemblages < 300 m from the farm.\nClimate + landscape forest + endemism index = primary, Ecoregion = robustness"
+    subtitle = "1-SD increase in each index; assemblages < 300 m from the farm.\nComponent (temperature + precipitation + landscape forest + endemism index) = primary, Ecoregion = robustness"
   ) +
   theme(legend.position = "bottom")
 ggsave("Figures/Farm_mgmt_index_effects.png", p_index_effects, bg = "white", width = 10, height = 4)
@@ -191,7 +191,7 @@ p_incidence_effects <- focal_both_responses %>%
   geom_pointrange(aes(xmin = lo, xmax = hi), position = position_dodge(width = 0.5), size = 0.4) +
   scale_colour_manual(values = c("Coverage / Cmax" = "#d95f02", "Incidence (m* = 6)" = "#08519c"), name = NULL) +
   facet_grid(Spec ~ Hill) +
-  labs(x = "Management-diversification coefficient (focal_z, 90% CrI)", y = NULL,
+  labs(x = "Standardized diversification-index effect on log diversity (90% CrI)", y = NULL,
        title = "Management effect: coverage/Cmax response vs point-count-standardised response") +
   theme(legend.position = "bottom")
 ggsave("Figures/Incidence_response_effects.png", p_incidence_effects, bg = "white", width = 11, height = 7, dpi = 150)
@@ -215,7 +215,7 @@ dist_both <- bind_rows(
 ) %>%
   mutate(Index = factor(recode(index, !!!inc_index_lab), levels = rev(unname(inc_index_lab))),
          Hill  = factor(recode(hill, !!!hill_labels), levels = hill_order),
-         Spec  = recode(spec, climate = "Climate spec", ecoregion = "Ecoregion spec"),
+         Spec  = recode(spec, climate = "Component spec", ecoregion = "Ecoregion spec"),
          Subset   = factor(recode(data_subset, !!!subset_lab), levels = unname(subset_lab)),
          Response = factor(response, levels = names(resp_pal)))
 
@@ -227,7 +227,7 @@ p_dist_sensitivity <- ggplot(dist_both, aes(est, Index, colour = Response, shape
   scale_shape_manual(values = c("Primary (< 300 m)" = 16, "All assemblages" = 1), name = NULL) +
   scale_x_continuous(breaks = c(-0.05, 0, 0.05, 0.1)) +
   facet_grid(Spec ~ Hill) +
-  labs(x = "Diversification-index coefficient (focal_z, 90% CrI)", y = NULL,
+  labs(x = "Standardized diversification-index effect on log diversity (90% CrI)", y = NULL,
        title = "Distance-to-farm cutoff sensitivity, both responses",
        subtitle = "Point counts averaging < 300 m from the farm (filled) vs all assemblages (open).") +
   theme(legend.position = "bottom", panel.spacing.x = unit(1, "lines"))
