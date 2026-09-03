@@ -42,7 +42,7 @@ source("/Users/aaronskinner/Library/CloudStorage/OneDrive-UBC/Academia/Rcookbook
 
 # Load data
 Event_covs_pcs <- read_csv(file = "Derived/Excels/Event_covs_pcs.csv")
-Pc_locs_dc <- vect("Derived/geospatial/shp/Pc_locs_dc.gpkg") 
+Pc_locs_dc <- vect("Derived/Geospatial/shp/Pc_locs_dc.gpkg") 
 
 # Rm Ubc El Hatico points -------------------------------------------------
 
@@ -164,7 +164,7 @@ Lcs_comb2 <- Lcs_comb %>% mutate(lc_typ2 = case_when(
 ## Visualize an example buffer
 if(FALSE){
   # Buffers from Landcover_digitization.R script
-  path <- "Derived/geospatial/shp/"
+  path <- "Derived/Geospatial/shp/"
   Buff_50m <- vect(paste0(path, "Buffers_50m/Buffers_50m.shp"))
   #Buff_300m <- vect(paste0(path, "Buffers_300m/Buffers_300m.shp"))
   ggplot() +
@@ -237,7 +237,7 @@ Snapped_lcs <- Snapped_lcs_l %>% vect()
 # Export ------------------------------------------------------------------
 ## Export cropped landcover shapefile - The polygons that mathilde digitized that have been processed in this R script
 Snapped_lcs #%>% 
-  #terra::writeVector(paste0("Derived/geospatial/shp/R_processed/Snapped_", Index_tbl[[tbl_row, "name"]], ".gpkg")) #, overwrite = TRUE
+  #terra::writeVector(paste0("Derived/Geospatial/shp/R_processed/Snapped_", Index_tbl[[tbl_row, "name"]], ".gpkg")) #, overwrite = TRUE
 stop()
 
 # Extras -----------------------------------------------------------------

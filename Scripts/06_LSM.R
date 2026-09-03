@@ -39,13 +39,13 @@ conflicts_prefer(dplyr::filter)
 source("/Users/aaronskinner/Library/CloudStorage/OneDrive-UBC/Academia/Rcookbook/Themes_funs.R")
 
 # Load data
-Pc_locs_dc <- vect("Derived/geospatial/shp/Pc_locs_dc.gpkg")
+Pc_locs_dc <- vect("Derived/Geospatial/shp/Pc_locs_dc.gpkg")
 Event_covs_pcs <- read_csv("Derived/Excels/Event_covs_pcs.csv")
 
 # Which shapefile?  --------------------------------------------------------
 file_name <- "ubc" # middle, past, ubc
 
-Snapped_lcs <- vect(paste0("Derived/geospatial/shp/R_processed/Snapped_", file_name, ".gpkg"))
+Snapped_lcs <- vect(paste0("Derived/Geospatial/shp/R_processed/Snapped_", file_name, ".gpkg"))
 
 # Correct a mistake ---------------------------------------------------------
 if(file_name == "past"){
