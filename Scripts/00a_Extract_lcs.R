@@ -184,29 +184,29 @@ Pc_locs_dc_proj <- Pc_locs_dc2 %>% project("EPSG:3116")
 # ALTERNATIVE APPROACH NEW DOESN'T WORK
 if(FALSE){
   Pc_locs_dc_proj <- Pc_locs_dc %>% 
-    distinct(Ecoregion, Departamento, Id_group, Id_muestreo, geometry) %>%
+    distinct(Ecoregion, Department, Id_group, Id_survey, geometry) %>%
     project("EPSG:4686")
 }
 
 ## Cycle through years? 
 if(FALSE){
-  Pc_date8 %>% distinct(Ecoregion, Id_muestreo, Ano) %>% 
-    pivot_wider(id.cols = Id_muestreo, 
-                names_prefix = "Ano", names_glue = 1:3,
-                values_from = Ano) 
+  Pc_date8 %>% distinct(Ecoregion, Id_survey, Year) %>% 
+    pivot_wider(id.cols = Id_survey, 
+                names_prefix = "Year", names_glue = 1:3,
+                values_from = Year) 
 }
 
 Buffer_rad_nmr <- seq(from = 300, to = 50, by = -50)
 Buffer_rad_nmr <- setNames(Buffer_rad_nmr, Buffer_rad_nmr)
 Buffers <- map(Buffer_rad_nmr, \(rad){
   Pc_locs_dc2 %>% buffer(rad) %>% 
-    select(Ecoregion, Departamento, Id_group, Id_muestreo)
+    select(Ecoregion, Department, Id_group, Id_survey)
 })
 
 ##  Intersect each buffer with the landcover object
 # NEW APPROACH (FAIL)
 #if(FALSE){
-Buff_300_l <- Buffers$`300` %>% terra::split("Id_muestreo")
+Buff_300_l <- Buffers$`300` %>% terra::split("Id_survey")
 Intersect_lcs <- map(Buff_300_l, \(buff_id){
   Lcs_comb2 %>% terra::intersect(buff_id) %>% 
     project("EPSG:3116")
@@ -245,21 +245,21 @@ stop()
 # WORKING
 Site_covs <- read_csv(file = "Derived/Excels/Site_covs.csv")
 Forest_typ_tbl <- Snapped_lcs[Pc_locs_dc_proj,] %>% 
-  distinct(Id_muestreo, forest_typ) %>% 
+  distinct(Id_survey, forest_typ) %>% 
   filter(!is.na(forest_typ)) %>%
   as_tibble()
-Event_covs_pcs[,c("Id_muestreo", "Id_muestreo_no_dc", "Ano")] %>%
-  filter(Ano == 2019) %>%
-  left_join(Site_covs[,c("Id_muestreo_no_dc", "Habitat")]) %>% 
+Event_covs_pcs[,c("Id_survey", "Id_survey_no_dc", "Year")] %>%
+  filter(Year == 2019) %>%
+  left_join(Site_covs[,c("Id_survey_no_dc", "Habitat")]) %>% 
   filter(Habitat == "Bosque") %>% 
   distinct() %>% 
   left_join(Forest_typ_tbl) %>%
-  group_by(Id_muestreo_no_dc) %>%
+  group_by(Id_survey_no_dc) %>%
   fill(forest_typ) %>%
   ungroup() %>%
-  #distinct(Id_muestreo_no_dc, forest_typ) %>%
+  #distinct(Id_survey_no_dc, forest_typ) %>%
   filter(is.na(forest_typ)) %>% 
-  pull(Id_muestreo)
+  pull(Id_survey)
 
 # >Zoom in og LC file -------------------------------------------
 # Use the extent of a problematic set of polygons to examine the original shapefile
@@ -312,7 +312,7 @@ dissappear_polys_id <- miss_ids3
 dissappear_polys <- Snapped_lcs %>% filter(poly_num %in% dissappear_polys_id)
 Prob_id_groups <- unique(dissappear_polys$Id_group)
 #Prob_id_groups <- c("G-AD-M-EPO3", "U-MB-M-EPO3")
-#Prob_id_muestreo <- unique(dissappear_polys$Id_muestreo)
+#Prob_id_muestreo <- unique(dissappear_polys$Id_survey)
 
 # Select problematic buffers
 Prob_groups <- Buffers$`300` %>% filter(Id_group %in% Prob_id_groups )
@@ -329,7 +329,7 @@ Lc_holes1
 Cropped_lcs_vp2 <- shp.lc.L[[tbl_row + 1]] %>% terra::intersect(Prob_groups) %>%
   project("EPSG:3116")
 
-#Prob_muestreo <- Cropped_lcs_vp2 %>% filter(Id_muestreo %in% Prob_id_muestreo)
+#Prob_muestreo <- Cropped_lcs_vp2 %>% filter(Id_survey %in% Prob_id_muestreo)
 
 # Visualize
 ggplot() + geom_spatvector(data = Cropped_lcs_vp2, alpha = .7) + 
@@ -497,8 +497,8 @@ valid_polys2 <- valid_polys #%>% filter(!poly_num %in% Prob_poly_id)
 
 # >Subsetting -------------------------------------------------------------
 # Large rasters, can be helpful to subset to more manageable size
-join_group <- Pc_locs_dc %>% distinct(Id_muestreo, Id_group)
-Id_buff <- expand_grid(Id_muestreo = Pc_locs_dc$Id_muestreo, 
+join_group <- Pc_locs_dc %>% distinct(Id_survey, Id_group)
+Id_buff <- expand_grid(Id_survey = Pc_locs_dc$Id_survey, 
                        Buffer_rad = names(Buffers)) %>% 
   left_join(join_group)
 
@@ -513,14 +513,14 @@ Pc_sub <- Pc_vect_proj %>% filter(Id_group %in% subset)
 # >Option 2 ---------------------------------------------------------------
 ## DELETE 
 # Instead of using built in lsm function.. I don't think this is necessary , but keep around for a while in case
-Id_muestreo <- unique(Id_buff_sub$Id_muestreo)
-Id_muestreo <- setNames(Id_muestreo, Id_muestreo)
+Id_survey <- unique(Id_buff_sub$Id_survey)
+Id_survey <- setNames(Id_survey, Id_survey)
 
 Buffers_proj <- map(Buffers, ~.x %>% project("EPSG:3116"))
 Buffer_rad_chr <- setNames(as.character(Buffer_rad_nmr), Buffer_rad_nmr)
-mask_rast <- map(Id_muestreo, \(id){
+mask_rast <- map(Id_survey, \(id){
   map(Buffer_rad_chr, \(rad){
-    Buff_id <- Buffers_proj[[rad]] %>% filter(Id_muestreo == id)
+    Buff_id <- Buffers_proj[[rad]] %>% filter(Id_survey == id)
     crop_rast <- crop(rast, Buff_id, mask = TRUE)
     return(crop_rast)
   })
@@ -529,7 +529,7 @@ mask_rast <- map(Id_muestreo, \(id){
 pland <- map_depth(mask_rast, 2, ~lsm_c_pland(.x))
 lsm_df3 <- list_flatten(pland, name_spec = "{outer}_buff{inner}") %>% 
   list_rbind(names_to = "Id_buff") %>% 
-  mutate(Id_muestreo = str_split_i(Id_buff, "_buff", 1), 
+  mutate(Id_survey = str_split_i(Id_buff, "_buff", 1), 
          Buff_rad = str_split_i(Id_buff, "_buff", 2)) %>% 
   select(-Id_buff)
 lsm_df3
@@ -537,11 +537,11 @@ lsm_df3
 
 # OLD, no longer need to split into a list. DELETE?
 if(FALSE){
-  # Split into a list so all polygon cells are split up by Id_muestreo. 
+  # Split into a list so all polygon cells are split up by Id_survey. 
   cropped_sub_l <- cropped_lcs %>% filter(Id_group == "UBC-MB-M-A") %>% 
-    terra::split("Id_muestreo")
+    terra::split("Id_survey")
   names(cropped_sub_l) <- map_chr(cropped_sub_l, \(crop_l){
-    crop_l %>% pull(Id_muestreo) %>% 
+    crop_l %>% pull(Id_survey) %>% 
       unique()
   })
   

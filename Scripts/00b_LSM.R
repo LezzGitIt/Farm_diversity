@@ -12,12 +12,12 @@
 # 1) Load libraries and data
 # 2) Set shapefile ('Which shapefile?')
 # 3) Rasterize: landscapemetrics package requires rasters as input
-# 4) Join landcover classes: We process the landcovers in a list based on the Id_muestreo (point count ID), & there may be differing numbers of landcovers in each point count. This step ensures that the class definitions (e.g., 0 = "forest) are equivalent for each point count
+# 4) Join landcover classes: We process the landcovers in a list based on the Id_survey (point count ID), & there may be differing numbers of landcovers in each point count. This step ensures that the class definitions (e.g., 0 = "forest) are equivalent for each point count
 # 4) Visualize: any unusual rasters to help diagnose problems
 # 5) Calc landscapemetrics: Use scale_sample() function to extract the landscapemetrics for each buffer
 # 6) Inspect 'percentage inside': Examine point counts that have 'percentage inside' significantly < 100 or > 100
 # 7) Plot: Plot point counts with low or high 'percentage inside' values
-# 8) Pivot long to wide: Landscapemetrics defaults to a long dataframe, but we ultimately want a single row per Id_muestreo X buffer size. 
+# 8) Pivot long to wide: Landscapemetrics defaults to a long dataframe, but we ultimately want a single row per Id_survey X buffer size. 
 # 9) Date_year manual: Update Date_year column for "past" & "ubc" files
 # 10) Export landscape metrics dataframe: Export dataframes that are then joined in future script
 # 11) Run script 3x (for all three time periods)
@@ -58,8 +58,8 @@ if(file_name == "past"){
 rast <- Snapped_lcs %>%  #Lcs_sub
   rast(resolution = 1)
 
-# Generate a list with each Id_muestreo 
-Lcs_id_muestreo <- Snapped_lcs %>% terra::split("Id_muestreo")
+# Generate a list with each Id_survey 
+Lcs_id_muestreo <- Snapped_lcs %>% terra::split("Id_survey")
 
 # Create extent with desired resolution
 rast_l <- map(Lcs_id_muestreo, \(polys_group){
@@ -110,7 +110,7 @@ keep(uniq_classes, ~length(.x) >4)
 join_lc_class <- map2(Lc_rast_l, uniq_classes, \(rast, class) {
     lc_typ2 <- rast$lc_typ2 %>% unique()
     bind_cols(lc_typ2, tibble(class))
-  }) %>% list_rbind(names_to = "Id_muestreo")
+  }) %>% list_rbind(names_to = "Id_survey")
 
 if(FALSE){
 ## OLD, saved 
@@ -124,19 +124,19 @@ join_lc_class <- map2(Lc_rast_l, uniq_classes, \(rast, class) {
   } else{
     join_lc_class_all
   }
-}) %>% list_rbind(names_to = "Id_muestreo") %>% 
+}) %>% list_rbind(names_to = "Id_survey") %>% 
   # Replace NA with empty
   mutate(lc_typ2 = ifelse(is.na(lc_typ2), "empty", lc_typ2)) 
 join_lc_class %>% filter(lc_typ2 == "empty")
 
-Snapped_lcs %>% filter(Id_muestreo == "G-MB-A-ET_06") %>% 
+Snapped_lcs %>% filter(Id_survey == "G-MB-A-ET_06") %>% 
   ggplot() +
   geom_spatvector(aes(fill = lc_typ2))
 
   ggplot() +
   geom_spatraster(data = Lc_rast_l$`G-MB-A-ET_06`) #aes(fill = lc_typ2
   
-  join_lc_class %>% filter(Id_muestreo == "G-MB-A-ET_06")
+  join_lc_class %>% filter(Id_survey == "G-MB-A-ET_06")
 } # DELETE
 
 # Visualize rasters -------------------------------------------------------
@@ -167,14 +167,14 @@ if(FALSE){
 ## Calculate lsm using Landscapemetrics package
 # Generate objects going into scale_sample() function
 Pc_locs_dc2 <- Pc_locs_dc %>% 
-  select(-c(Uniq_db, Nombre_institucion)) %>%
+  select(-c(Uniq_db, Institution_name)) %>%
   distinct() %>%
-  filter(Id_muestreo %in% names(Lc_rast_l)) %>%
+  filter(Id_survey %in% names(Lc_rast_l)) %>%
   project("EPSG:4686")
 
 Pc_locs_dc_proj <- Pc_locs_dc2 %>% project("EPSG:3116")
 Pc_cents <- Pc_locs_dc_proj %>%
-  terra::split("Id_muestreo")
+  terra::split("Id_survey")
 
 Buffer_rad_nmr <- c(seq(from = 300, to = 50, by = -50), 25)
 Buffer_rad_nmr <- setNames(Buffer_rad_nmr, Buffer_rad_nmr)
@@ -203,7 +203,7 @@ prob_points <- setNames(prob_points, prob_points)
 prob_points 
 
 # Rbind our lsm list, format, and join with join_lc_class for lc_typ
-Lsm_df_long <- Lsm_l %>% list_rbind(names_to = "Id_muestreo") %>% 
+Lsm_df_long <- Lsm_l %>% list_rbind(names_to = "Id_survey") %>% 
   rename(buffer = size) %>% 
   select(-c(plot_id, id, layer)) %>% 
   left_join(join_lc_class)
@@ -212,16 +212,16 @@ Lsm_df_long <- Lsm_l %>% list_rbind(names_to = "Id_muestreo") %>%
 Lsm_df_long %>% filter(is.na(lc_typ2) & metric != "te")
 
 # Percent_inside inspection---------------------------------------------------
-## NOTE:: There are 'percentage_inside' (pi) over 100 and under 98. Generate 1 row per Id_muestreo to handle more easily 
+## NOTE:: There are 'percentage_inside' (pi) over 100 and under 98. Generate 1 row per Id_survey to handle more easily 
 Low_pi <- Lsm_df_long %>% filter(percentage_inside < 100) %>% #> 100
-  summarize(percent_inside = min(percentage_inside), .by = Id_muestreo) %>%
+  summarize(percent_inside = min(percentage_inside), .by = Id_survey) %>%
   mutate(sum_fun = "min") %>%
   arrange(percent_inside)# %>%
-  #filter(str_detect(Id_muestreo, "\\(1\\)|OQ")) 
+  #filter(str_detect(Id_survey, "\\(1\\)|OQ")) 
 Low_pi
 
 High_pi <- Lsm_df_long %>% filter(percentage_inside >= 100) %>% 
-  summarize(percent_inside = max(percentage_inside), .by = Id_muestreo) %>%
+  summarize(percent_inside = max(percentage_inside), .by = Id_survey) %>%
   mutate(sum_fun = "max") %>% 
   arrange(desc(percent_inside))
 High_pi
@@ -236,10 +236,10 @@ prob_ids_min_max <- prob_pi_ids %>% slice(1:10, .by = sum_fun)
 # >Plot problematic pi buffers ------------------------------------------------
 ## Plot, using pmap to iterate over dataframe in rowwise fashion
 # Can use prob_pi_ids if that is better, but the highest percentage_inside values aren't very informative visually
-prob_pi_plots <- pmap(prob_ids_min_max[,1:2], \(Id_muestreo, percent_inside) {
+prob_pi_plots <- pmap(prob_ids_min_max[,1:2], \(Id_survey, percent_inside) {
   ggplot() +
-    geom_spatraster(data = Lc_rast_l[[Id_muestreo]]) + 
-    labs(subtitle = Id_muestreo, 
+    geom_spatraster(data = Lc_rast_l[[Id_survey]]) + 
+    labs(subtitle = Id_survey, 
          caption = paste("Percent Inside:", percent_inside)) +
     theme_min + 
     theme(legend.position = "none")
@@ -260,7 +260,7 @@ if(FALSE){
 
 # PLAND df
 Lsm_pland <- Lsm_df_long %>% filter(metric == "pland") %>% 
-  pivot_wider(id_cols = c(Id_muestreo, metric, buffer),
+  pivot_wider(id_cols = c(Id_survey, metric, buffer),
               names_from = lc_typ2,
               values_from = value, values_fill = 0) 
 
@@ -271,7 +271,7 @@ table(near(Check_add_tbl$Total, 100))
 
 # Total edge df
 Lsm_te <- Lsm_df_long %>% filter(metric == "te") %>% 
-  pivot_wider(id_cols = c(Id_muestreo, buffer),
+  pivot_wider(id_cols = c(Id_survey, buffer),
               names_from = metric,
               values_from = value)
 
@@ -279,7 +279,7 @@ Lsm_te <- Lsm_df_long %>% filter(metric == "te") %>%
 Lsm_df <- Lsm_pland %>% full_join(Lsm_te) %>% 
   select(-metric) %>% 
   mutate(across(where(is.numeric), ~ round(.x, 2))) %>% 
-  arrange(Id_muestreo, buffer)
+  arrange(Id_survey, buffer)
 
 # Date_year manual --------------------------------------------------------
 ## Make manual changes to data_year in ubc & past files. 
@@ -288,7 +288,7 @@ if(file_name == "past"){
   Lsm_df <- Lsm_df %>% mutate(
     data_year = 2013, # General
     # "G-MB-G-CB" is an exception
-    data_year = ifelse(str_detect(Id_muestreo, "G-MB-G-CB"), 2016, data_year)
+    data_year = ifelse(str_detect(Id_survey, "G-MB-G-CB"), 2016, data_year)
   )
 }
 
@@ -302,15 +302,15 @@ if(file_name == "ubc"){
 forest <- Snapped_lcs %>% filter(lc_typ2 == "forest")
 
 # Identify closest forest within 300m
-Ids <- Pc_locs_dc_proj$Id_muestreo
+Ids <- Pc_locs_dc_proj$Id_survey
 Ids <- setNames(Ids, Ids)
 
 Min_dist_forest <- map(Ids, \(id) {
   # Subset 
-  forest_id <- forest[forest$Id_muestreo == id, ] %>% 
+  forest_id <- forest[forest$Id_survey == id, ] %>% 
     makeValid() #%>%
     #terra::aggregate()
-  Pc_cent_id <- Pc_locs_dc_proj[Pc_locs_dc_proj$Id_muestreo == id, ]
+  Pc_cent_id <- Pc_locs_dc_proj[Pc_locs_dc_proj$Id_survey == id, ]
   
   # If no forest in buffer, return NA for Dist_to_edge
   if (nrow(forest_id) == 0){
@@ -340,19 +340,19 @@ Min_dist_forest <- map(Ids, \(id) {
   else {data_year <- 2022}
   Min_dist_tbl$data_year <- data_year
   return(Min_dist_tbl)
-}) %>% list_rbind(names_to = "Id_muestreo") %>% 
+}) %>% list_rbind(names_to = "Id_survey") %>% 
   distinct() # There are some duplicates after adding forest_typ
 Min_dist_forest %>% filter(In_forest == 1)
 
 ## Plot to ensure that distance to forest worked
 In_forest <- Min_dist_forest %>% filter(In_forest == 1) %>% 
   arrange(desc(Dist_to_edge)) %>%
-  pull(Id_muestreo)
+  pull(Id_survey)
 # Plot
-forest %>% filter(Id_muestreo == In_forest[1]) %>%
+forest %>% filter(Id_survey == In_forest[1]) %>%
   ggplot() + 
   geom_spatvector() + 
-  geom_spatvector(data = filter(Pc_locs_dc_proj, Id_muestreo == In_forest[1]))
+  geom_spatvector(data = filter(Pc_locs_dc_proj, Id_survey == In_forest[1]))
 #}
 
 # Save and export ---------------------------------------------------------
@@ -386,7 +386,7 @@ prob_pi_ids %>% as.data.frame() #%>%
 #)
 
 # >Load lsm, save object ------------------------------------------------
-Hab_join <- Pc_hab %>% distinct(Id_muestreo, Habitat) %>% 
+Hab_join <- Pc_hab %>% distinct(Id_survey, Habitat) %>% 
   filter(!is.na(Habitat))
 
 ## Lsm files
@@ -444,7 +444,7 @@ Event_covs_pcs <- read_csv("Derived/Excels/Event_covs_pcs.csv")
 
 # Keep the 300m buffer
 Lsm_l_300 <- map(Lsm_l, \(Lsm_df){
-  Lsm_df %>% slice_max(by = Id_muestreo, order_by = buffer) %>% 
+  Lsm_df %>% slice_max(by = Id_survey, order_by = buffer) %>% 
     select(-buffer)
 })
 
@@ -457,18 +457,18 @@ Lsm_l_comb <- map2(Lsm_l_300, Min_dist_forest_l2, \(Lsm_df, Min_dist_df){
 # Rename year column in ubc & past files to match with the Event_covs_pcs file 
 Lsm_l_comb$middle <- Lsm_l_comb$middle %>% select(-data_year)
 Lsm_l_comb[2:3] <- map(Lsm_l_comb[2:3], \(df){
-  df %>% rename(Ano = data_year)
+  df %>% rename(Year = data_year)
 })
 
-Lsm_df_exp %>% pull(Id_muestreo) %>% unique()
+Lsm_df_exp %>% pull(Id_survey) %>% unique()
 
   
 # Join site covs with landscapemetrics. First, match Site_covs_df with 'middle' shapefile, & then overwrite the middle file using the past & ubc files in the correct locations with rows_update() function
 # NOTE:: The 'lc_file' column specifies where the lc information comes from
 Event_covs_lsm <- Event_covs_pcs %>% 
   left_join(Lsm_l_comb$middle) %>%
-  rows_update(Lsm_l_comb$ubc, by = c("Id_muestreo", "Ano")) %>%
-  rows_update(Lsm_l_comb$past, by = c("Id_muestreo", "Ano")) %>% 
+  rows_update(Lsm_l_comb$ubc, by = c("Id_survey", "Year")) %>%
+  rows_update(Lsm_l_comb$past, by = c("Id_survey", "Year")) %>% 
   select(-lc_file)
 
 # >Fill in blanks until Natalia --------------------------------------------
@@ -476,19 +476,19 @@ Event_covs_lsm <- Event_covs_pcs %>%
 # Inspect - Blanks for UBC data collected in 2025 - 2026
 Event_covs_lsm %>% 
   Na_rows_cols(
-    id_cols = Id_muestreo, 
-    cols_inc = -c(Registrado_por, Noise, Clima, Cows_50m, forest_typ)
-  ) #%>% pull(Id_muestreo) %>% unique()
+    id_cols = Id_survey, 
+    cols_inc = -c(Registered_by, Noise, Weather, Cows_50m, forest_typ)
+  ) #%>% pull(Id_survey) %>% unique()
 
-# First group_by(Id_muestreo) to ensure that it pulls from UBC (2022) data where possible 
+# First group_by(Id_survey) to ensure that it pulls from UBC (2022) data where possible 
 Event_covs_lsm2 <- Event_covs_lsm %>% 
-  group_by(Id_muestreo) %>% 
+  group_by(Id_survey) %>% 
   fill(Dist_forest, forest, intpast, other, ssp, te) %>% 
   ungroup()
-# Next group_by(Id_muestreo_no_dc) to pick up any stragglers
+# Next group_by(Id_survey_no_dc) to pick up any stragglers
 Event_covs_lsm3 <- Event_covs_lsm2 %>% 
-  group_by(Id_muestreo_no_dc) %>% 
-  arrange(Ano) %>% 
+  group_by(Id_survey_no_dc) %>% 
+  arrange(Year) %>% 
   # Fills down by default
   fill(Dist_forest, forest, intpast, other, ssp, te) %>% 
   ungroup() 
@@ -496,9 +496,9 @@ Event_covs_lsm3 <- Event_covs_lsm2 %>%
 # Still no data for El Hatico
 Event_covs_lsm3 %>% 
   Na_rows_cols(
-    id_cols = Id_muestreo, 
-    cols_inc = -c(Registrado_por, Noise, Clima, Cows_50m, forest_typ)
-  ) %>% pull(Id_muestreo)
+    id_cols = Id_survey, 
+    cols_inc = -c(Registered_by, Noise, Weather, Cows_50m, forest_typ)
+  ) %>% pull(Id_survey)
 
 
 # Export
@@ -509,7 +509,7 @@ Event_covs_lsm3 %>%
 # >Checks -----------------------------------------------------------------
 # Row accounting 
 nrow_ec <- Event_covs_lsm %>%
-  distinct(Id_muestreo, Ano_grp, forest, intpast, other, ssp, te) %>% 
+  distinct(Id_survey, Year_grp, forest, intpast, other, ssp, te) %>% 
   nrow()
 nrow_site_covs_df <- 667
 # 8 UBC EH points, 4 for CIPAV 2025
@@ -526,7 +526,7 @@ corr_l <- map(Lsm_l, \(lsm_tbl){
   lsm_tbl %>% filter(size == 300) %>%
     calculate_correlation(simplify = TRUE)
 }) 
-corr_df <- corr_l %>% list_rbind(names_to = "Id_muestreo") %>% 
+corr_df <- corr_l %>% list_rbind(names_to = "Id_survey") %>% 
   filter(metric_1 != metric_2) %>% 
   arrange(value)
 
@@ -552,7 +552,7 @@ imap(Id_prob, \(id, name){
 
 prob <- "G-MB-G-CB"
 
-Snapped_lcs %>% filter(Id_muestreo == prob) %>% # "G-MB-M-A_01-B"
+Snapped_lcs %>% filter(Id_survey == prob) %>% # "G-MB-M-A_01-B"
   ggplot() + 
   geom_spatvector() +
   labs(title = prob)
@@ -560,26 +560,26 @@ Snapped_lcs %>% filter(Id_muestreo == prob) %>% # "G-MB-M-A_01-B"
 # In middle: "G-MB-A-LRE" = 2016, G-MB-G-CB = 2017, "G-MB-M-LP1" = 2017
 # G-MB-G-CB SHOULD ACTUALLY BE 2016 IN PAST FILE!? 
 Bird_pcs %>% filter(Id_group %in% Id_prob) %>% 
-  distinct(Id_group, Ano) %>% 
+  distinct(Id_group, Year) %>% 
   arrange(Id_group)
 
 
 ## PART 2 -- TROUBLESHOOT
 Prob_ids <- Lsm_pland %>% filter(empty > 0) %>% 
-  pull(Id_muestreo) %>% 
+  pull(Id_survey) %>% 
   unique() 
 Prob_ids <- setNames(Prob_ids, Prob_ids) 
 
-df <- Snapped_lcs %>% filter(Id_muestreo == Prob_ids[1])
+df <- Snapped_lcs %>% filter(Id_survey == Prob_ids[1])
 df2 <- Snapped_lcs %>% 
-  filter(Id_muestreo == Prob_ids[1] & lc_typ2 == "other")
+  filter(Id_survey == Prob_ids[1] & lc_typ2 == "other")
 ggplot() +
   #geom_spatvector(data = df, aes(fill = lc_typ2), alpha = .1) +
   geom_spatvector(data = df2, aes(fill = lc_typ2), color = "red", alpha = 1) +
   labs(title = Prob_ids[1])
 
 Join_data_year <- Snapped_lcs %>% as_tibble() %>%
-  select(Id_muestreo, Uniq_db, starts_with("data_year")) %>% 
+  select(Id_survey, Uniq_db, starts_with("data_year")) %>% 
   distinct() %>% 
   filter(!if_all(starts_with("data_year"), ~ is.nan(.x)))
 
@@ -589,11 +589,11 @@ Join_data_year %>% filter(data_year = case_when(
 ))
 
 # Identify points with multiple rows
-Ids_mult_rows <- Join_data_year %>% mutate(n = n(), .by = Id_muestreo) %>% 
+Ids_mult_rows <- Join_data_year %>% mutate(n = n(), .by = Id_survey) %>% 
   filter(n > 1) %>% 
   arrange(desc(n)) %>% view()
-pull(Id_muestreo)
-Join_data_year %>% filter(Id_muestreo == "G-MB-M-EA_01")
+pull(Id_survey)
+Join_data_year %>% filter(Id_survey == "G-MB-M-EA_01")
 
 ## Investigating ##
 Snapped_lcs %>% as_tibble() %>% 
@@ -602,8 +602,8 @@ Snapped_lcs %>% as_tibble() %>%
   distinct()
 
 Join_data_year %>% 
-  filter(Uniq_db %in% c("Unillanos mbd", "Ubc mbd") & Id_muestreo == "U-MB-M-EPO3_04") %>%
-  filter(Id_muestreo %in% Ids_mult_rows) %>% 
+  filter(Uniq_db %in% c("Unillanos mbd", "Ubc mbd") & Id_survey == "U-MB-M-EPO3_04") %>%
+  filter(Id_survey %in% Ids_mult_rows) %>% 
   tabyl(data_year)
 
 ## 
@@ -615,9 +615,9 @@ Snapped_lcs %>% data.frame() %>%
   filter(Id_group %in% CO_EA) %>% 
   distinct(Id_group, data_year, data_year2, image_date)
 
-Prob_poly <- Snapped_lcs %>% filter(Id_muestreo == "G-MB-M-EA_02") %>% 
+Prob_poly <- Snapped_lcs %>% filter(Id_survey == "G-MB-M-EA_02") %>% 
   filter(data_year == 2019)
-Prob_poly <- Snapped_lcs %>% filter(Id_muestreo == "G-AD-M-CO_02") %>% 
+Prob_poly <- Snapped_lcs %>% filter(Id_survey == "G-AD-M-CO_02") %>% 
   filter(data_year == 2017 & is.na(data_year2))
 Snapped_lcs %>% filter(Id_group %in% CO_EA) %>%
   #filter(data_year == 2019) %>% #c(2016, 2017) 
@@ -626,5 +626,5 @@ Snapped_lcs %>% filter(Id_group %in% CO_EA) %>%
   geom_spatvector(data = Prob_poly, fill = "black", alpha = 1, size = 5)
 
 Bird_pcs %>% filter(Id_group %in% c("G-AD-M-CO", "G-MB-M-EA")) %>% 
-  distinct(Id_muestreo, Ano) %>% view()
+  distinct(Id_survey, Year) %>% view()
 
