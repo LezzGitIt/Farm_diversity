@@ -13,7 +13,7 @@
 
 ### `pool_blocks` / `spec_checks` / `response_dist` / `ideal_adj` / `endemism_pool` still carry the PRE-2026-08-31 climate block (Num_hab_z, no pool_wes_z; ecoregion has canopy) -- deliberately frozen (Aaron): their conclusions are about the response / RE / pool, not the exact climate parameterisation. `piedemonte` and `spline_env` are on the current spec.
 
-### Shared helpers: Scripts/Model_fns.R. Reads Scripts/04a's persisted frame Derived/Excels/Farm_mgmt_model_data.csv (+ the incidence export, + Data/Farm_species_pool.csv). Run 04a first.
+### Shared helpers: Scripts/Model_fns.R. Reads Scripts/04a's persisted frame Derived/Excels/Farm_mgmt_model_data.csv (+ the incidence export, + Derived/Excels/Farm_species_pool.csv). Run 04a first.
 
 # Setup ----
 library(tidyverse)
@@ -22,7 +22,7 @@ library(cowplot)
 library(loo)
 library(mgcv)
 
-source("Scripts/Model_fns.R")   # MGMT_PRIORS, mgmt_bf(), fit_model_grid(), tidy_model_fits(), focal_fit_summary(), latest_file()
+source("Scripts/Model_fns.R")   # MGMT_PRIORS, mgmt_bf(), fit_model_grid(), tidy_model_fits(), focal_fit_summary(), WRANGLING_EXCELS, tax_div_path()
 
 ### `conflicted` deliberately not loaded -- its shims break rstan's Stan-model compilation (see Scripts/04a).
 
@@ -47,13 +47,13 @@ model_data_csv <- "Derived/Excels/Farm_mgmt_model_data.csv"
 
 ## Scripts/04a's persisted [assemblage x Hill] frame + the cyclic day-of-year terms (04a stores `doy`, not doy_sin/doy_cos)
 Base_frame <- read_csv(model_data_csv, show_col_types = FALSE) %>%
-  mutate(Id_gcs = as.character(Id_gcs),
+  mutate(Id_scr = as.character(Id_scr),
          doy_sin = sin(2 * pi * doy / 365),
          doy_cos = cos(2 * pi * doy / 365))
 
 ## Per-farm potential species pool metrics (Scripts/01b): raw range-map count + range-rarity-weighted variants
-Pool_raw <- read_csv("Data/Farm_species_pool.csv", show_col_types = FALSE) %>%
-  mutate(Id_gcs = as.character(Id_gcs))
+Pool_raw <- read_csv("Derived/Excels/Farm_species_pool.csv", show_col_types = FALSE) %>%
+  mutate(Id_scr = as.character(Id_scr))
 
 index_lab <- c(Land_use_div = "Land use", Water_mgmt_div = "Water mgmt",
                Pasture_mgmt_div = "Pasture mgmt", All_practices_div = "All practices")
@@ -77,7 +77,7 @@ if ("piedemonte" %in% run_sections) {
 
   ## env_pc1: PC1 of {elevation, precipitation, canopy_10k}, fitted on the distinct Piedemonte farms then applied to every assemblage row
   env_vars <- c("Elev_mean", "Tot_prec_mean", "canopy_10k")
-  pied_farms <- Pied %>% distinct(Id_gcs, .keep_all = TRUE) %>% select(Id_gcs, all_of(env_vars))
+  pied_farms <- Pied %>% distinct(Id_scr, .keep_all = TRUE) %>% select(Id_scr, all_of(env_vars))
   env_pca <- prcomp(pied_farms %>% select(all_of(env_vars)), scale. = TRUE)
   pc1_var <- summary(env_pca)$importance["Proportion of Variance", "PC1"]
   message(sprintf("env_pc1 captures %.1f%% of the joint variance of elev / precip / canopy within Piedemonte", 100 * pc1_var))
@@ -87,11 +87,11 @@ if ("piedemonte" %in% run_sections) {
     mutate(env_pc1 = as.numeric(predict(env_pca, newdata = select(pied_farms, all_of(env_vars)))[, 1]))
 
   Pied <- Pied %>%
-    left_join(pied_farms %>% select(Id_gcs, env_pc1), by = "Id_gcs") %>%
+    left_join(pied_farms %>% select(Id_scr, env_pc1), by = "Id_scr") %>%
     mutate(doy_sin = sin(2 * pi * doy / 365), doy_cos = cos(2 * pi * doy / 365))
 
   ## Second response: the point-count-standardised incidence estimate (Scripts/00 ESTIMATE A); its models drop Num_pc_log_z
-  Incidence <- read_csv(latest_file("Derived/Excels", "^Tax_div_incidence_.*\\.csv$"), show_col_types = FALSE) %>%
+  Incidence <- read_csv(tax_div_path("incidence"), show_col_types = FALSE) %>%
     transmute(Assemblage, Hill, inc_log_response = log(qD), inc_se_log = qD_se / qD)
   Pied <- Pied %>% left_join(Incidence, by = c("Assemblage", "Hill"))
 
@@ -102,7 +102,7 @@ if ("piedemonte" %in% run_sections) {
   write_csv(Pied, "Derived/Excels/Farm_mgmt_piedemonte_data.csv")
 
   pied_responses <- sort(unique(Pied$Hill))
-  re_terms <- c(full_re = "(1 | Id_gcs) + (1 | CollectorXyear)")
+  re_terms <- c(full_re = "(1 | Id_scr) + (1 | CollectorXyear)")
 
   pied_bf <- function(row) {
     lhs <- if (row$response_type == "incidence") "inc_log_response | resp_se(inc_se_log, sigma = TRUE)"
@@ -137,7 +137,7 @@ if ("piedemonte" %in% run_sections) {
                               iter = pied_iter, warmup = pied_warmup, adapt_delta = pied_adapt)
 
   Pied_summaries <- tidy_model_fits(pied_fits, pied_grid) %>%
-    mutate(n_farm = map_int(key, ~ length(unique(pied_fits[[.x]]$data$Id_gcs)))) %>%
+    mutate(n_farm = map_int(key, ~ length(unique(pied_fits[[.x]]$data$Id_scr)))) %>%
     select(hill, index, data_subset, re_spec, response_type, term, estimate, conf_low, conf_high,
            p_direction_pos, n_obs, n_farm, bayes_R2, max_rhat, n_divergent) %>%
     mutate(across(c(estimate, conf_low, conf_high, p_direction_pos, bayes_R2), ~ round(.x, 4)))
@@ -169,7 +169,7 @@ if ("pool_blocks" %in% run_sections) {
   pb_iter <- 3000; pb_warmup <- 1000; pb_adapt <- 0.99
 
   Md <- Base_frame %>%
-    left_join(Pool_raw %>% select(Id_gcs, pool_point), by = "Id_gcs") %>%
+    left_join(Pool_raw %>% select(Id_scr, pool_point), by = "Id_scr") %>%
     mutate(pool_point_z = as.numeric(scale(pool_point)))
 
   env_blocks <- c(
@@ -178,7 +178,7 @@ if ("pool_blocks" %in% run_sections) {
     pool_elev   = "pool_point_z + Elev_mean_z + I(Elev_mean_z^2) + canopy_10k_z",
     pool_precip = "pool_point_z + Tot_prec_mean_z + I(Tot_prec_mean_z^2) + canopy_10k_z"
   )
-  pb_sampling <- c("Num_pc_log_z", "Num_hab_z", "doy_sin", "doy_cos", "(1 | Id_gcs)", "(1 | CollectorXyear)")
+  pb_sampling <- c("Num_pc_log_z", "Num_hab_z", "doy_sin", "doy_cos", "(1 | Id_scr)", "(1 | CollectorXyear)")
 
   pb_frame <- function(row) {
     Md %>%
@@ -235,7 +235,7 @@ if ("pool_blocks" %in% run_sections) {
     pflex_grid,
     build_bf = function(row) mgmt_bf("log_response | resp_se(se_log, sigma = TRUE)", "focal_z",
                                      c(precip_specs[[row$pspec]], "Num_pc_log_z", "Num_hab_z",
-                                       "doy_sin", "doy_cos", "(1 | Id_gcs)", "(1 | CollectorXyear)")),
+                                       "doy_sin", "doy_cos", "(1 | Id_scr)", "(1 | CollectorXyear)")),
     build_data = pb_frame,
     iter = pb_iter, warmup = pb_warmup, adapt_delta = pb_adapt
   )
@@ -288,10 +288,10 @@ if ("pool_blocks" %in% run_sections) {
   print(p_env_specs)
 
   ## Fig 2: variance partition of the range-map species-pool count onto the elevation / precipitation gradients
-  canopy_by_farm <- Base_frame %>% summarize(canopy_10k = mean(canopy_10k, na.rm = TRUE), .by = Id_gcs)
+  canopy_by_farm <- Base_frame %>% summarize(canopy_10k = mean(canopy_10k, na.rm = TRUE), .by = Id_scr)
   pe_vp <- Pool_raw %>%
-    left_join(read_csv("Data/Farm_covariates.csv", show_col_types = FALSE) %>% mutate(Id_gcs = as.character(Id_gcs)), by = "Id_gcs") %>%
-    left_join(canopy_by_farm, by = "Id_gcs")
+    left_join(read_csv("Derived/Excels/Farm_covariates.csv", show_col_types = FALSE) %>% mutate(Id_scr = as.character(Id_scr)), by = "Id_scr") %>%
+    left_join(canopy_by_farm, by = "Id_scr")
   r2v <- function(f) summary(lm(f, pe_vp))$r.squared
   full_vp <- r2v(pool_point ~ poly(Elev_mean, 2) + poly(Tot_prec_mean, 2))
   onlyE <- r2v(pool_point ~ poly(Elev_mean, 2)); onlyP <- r2v(pool_point ~ poly(Tot_prec_mean, 2))
@@ -316,8 +316,8 @@ if ("pool_blocks" %in% run_sections) {
 
   cat("\n[pool_blocks] variance partition: pool_point ~ climate (farm level, lm)\n")
   pe <- Pool_raw %>%
-    left_join(read_csv("Data/Farm_covariates.csv", show_col_types = FALSE) %>% mutate(Id_gcs = as.character(Id_gcs)),
-              by = "Id_gcs")
+    left_join(read_csv("Derived/Excels/Farm_covariates.csv", show_col_types = FALSE) %>% mutate(Id_scr = as.character(Id_scr)),
+              by = "Id_scr")
   r2 <- function(f) round(summary(lm(f, pe))$r.squared, 3)
   full <- r2(pool_point ~ poly(Elev_mean, 2) + poly(Tot_prec_mean, 2))
   cat("  ~ poly(Elev,2):", r2(pool_point ~ poly(Elev_mean, 2)),
@@ -350,8 +350,8 @@ if ("spec_checks" %in% run_sections) {
   )
   variant_lhs <- c(base = "log_response | resp_se(se_log, sigma = TRUE)",
                    no_resp_se = "log_response")
-  variant_re  <- c(base = "(1 | Id_gcs) + (1 | CollectorXyear)",
-                   no_resp_se = "(1 | Id_gcs) + (1 | CollectorXyear)")
+  variant_re  <- c(base = "(1 | Id_scr) + (1 | CollectorXyear)",
+                   no_resp_se = "(1 | Id_scr) + (1 | CollectorXyear)")
 
   sc_frame <- function(row) {
     df <- Md %>%
@@ -400,7 +400,7 @@ if ("spec_checks" %in% run_sections) {
     prior(exponential(0.5), class = "sd"), prior(exponential(0.5), class = "sigma"))
   lik_scale <- function(lik) dplyr::case_when(lik == "gaussian_raw" ~ "raw", lik == "gaussian_sqrt" ~ "sqrt", TRUE ~ "log")
   lik_rhs <- paste("focal_z +", sc_env[["climate"]],
-                   "+ Num_pc_log_z + Num_hab_z + doy_sin + doy_cos + (1 | Id_gcs) + (1 | CollectorXyear)")
+                   "+ Num_pc_log_z + Num_hab_z + doy_sin + doy_cos + (1 | Id_scr) + (1 | CollectorXyear)")
 
   lik_grid <- expand_grid(hill = c("richness", "shannon"),
                           index = c("Pasture_mgmt_div", "Water_mgmt_div"),
@@ -500,7 +500,7 @@ if ("response_dist" %in% run_sections) {
   }
   rd_rhs <- function(spec, index) paste(c(if (index != "baseline") "focal_z", rd_specs[[spec]],
                                           "Num_pc_log_z", "Num_hab_z", "doy_sin", "doy_cos",
-                                          "(1 | Id_gcs)", "(1 | CollectorXyear)"), collapse = " + ")
+                                          "(1 | Id_scr)", "(1 | CollectorXyear)"), collapse = " + ")
   rd_lhs <- function(scale) switch(scale,
     log  = "log_response | resp_se(se_log, sigma = TRUE)",
     raw  = "response | resp_se(response_se, sigma = TRUE)",
@@ -674,12 +674,12 @@ if ("ideal_adj" %in% run_sections) {
   ia_iter <- 3000; ia_warmup <- 1000; ia_adapt <- 0.99
 
   Md <- Base_frame %>%
-    left_join(Pool_raw %>% select(Id_gcs, pool_point), by = "Id_gcs") %>%
+    left_join(Pool_raw %>% select(Id_scr, pool_point), by = "Id_scr") %>%
     mutate(pool_point_z = as.numeric(scale(pool_point)))
 
   ia_env  <- c("Elev_mean_z", "I(Elev_mean_z^2)", "Tot_prec_mean_z", "I(Tot_prec_mean_z^2)", "pool_point_z", "canopy_10k_z")
   ia_samp <- c("Num_pc_log_z", "Num_hab_z", "doy_sin", "doy_cos")
-  ia_re   <- c("(1 | Id_gcs)", "(1 | CollectorXyear)")
+  ia_re   <- c("(1 | Id_scr)", "(1 | CollectorXyear)")
 
   ia_frame <- function(row) {
     df <- Md %>%
@@ -817,10 +817,10 @@ if ("endemism_pool" %in% run_sections) {
   pool_var <- "pool_cwe"
 
   Md <- Base_frame %>%
-    left_join(Pool_raw %>% select(Id_gcs, pool_point, pool_we, pool_cwe, pool_wes), by = "Id_gcs") %>%
+    left_join(Pool_raw %>% select(Id_scr, pool_point, pool_we, pool_cwe, pool_wes), by = "Id_scr") %>%
     mutate(pool_z = as.numeric(scale(log(.data[[pool_var]]))))
 
-  ep_sampling <- c("Num_pc_log_z", "Num_hab_z", "doy_sin", "doy_cos", "(1 | Id_gcs)", "(1 | CollectorXyear)")
+  ep_sampling <- c("Num_pc_log_z", "Num_hab_z", "doy_sin", "doy_cos", "(1 | Id_scr)", "(1 | CollectorXyear)")
   ep_specs <- c(
     swap      = "Elev_mean_z + I(Elev_mean_z^2) + Tot_prec_mean_z + I(Tot_prec_mean_z^2) + pool_z + canopy_10k_z",
     we_precip = "pool_z + Tot_prec_mean_z + I(Tot_prec_mean_z^2) + canopy_10k_z",
@@ -939,11 +939,11 @@ if ("spline_env" %in% run_sections) {
   )
 
   Predictors <- Base_frame %>%
-    distinct(Assemblage, Id_gcs, CollectorXyear, Ecoregion, dist_farm, doy_sin, doy_cos,
+    distinct(Assemblage, Id_scr, CollectorXyear, Ecoregion, dist_farm, doy_sin, doy_cos,
              Elev_mean_z, Tot_prec_mean_z, canopy_10k_z, pool_wes_z, Num_pc_log_z,
              Land_use_div_z, Water_mgmt_div_z, Pasture_mgmt_div_z, All_practices_div_z)
   Cmax_resp <- Base_frame %>% transmute(Assemblage, Hill, response_arm = "cmax", log_response, se_log)
-  Inc_resp <- read_csv(latest_file("Derived/Excels", "^Tax_div_incidence_.*\\.csv$"), show_col_types = FALSE) %>%
+  Inc_resp <- read_csv(tax_div_path("incidence"), show_col_types = FALSE) %>%
     transmute(Assemblage, Hill, response_arm = "incidence", log_response = log(qD), se_log = qD_se / qD)
   SE_data <- bind_rows(Cmax_resp, Inc_resp) %>%
     inner_join(Predictors, by = "Assemblage") %>%
@@ -963,7 +963,7 @@ if ("spline_env" %in% run_sections) {
     if (row$index != "baseline") "focal_z" else NULL,
     c(env_forms$env_terms[match(row$form, env_forms$form)],
       if (row$response_arm == "cmax") "Num_pc_log_z",
-      "doy_sin", "doy_cos", "(1 | Id_gcs)", "(1 | CollectorXyear)")
+      "doy_sin", "doy_cos", "(1 | Id_scr)", "(1 | CollectorXyear)")
   )
 
   se_grid <- expand_grid(response_arm = c("cmax", "incidence"), env_forms,
@@ -1039,10 +1039,10 @@ if ("spline_env" %in% run_sections) {
   ## approximate frequentist edf of each env smooth (mgcv, unweighted)
   edf_one <- function(response_arm, hill) {
     df <- se_frame(list(response_arm = response_arm, hill = hill, index = "baseline")) %>%
-      mutate(Id_gcs = factor(Id_gcs), CollectorXyear = factor(CollectorXyear))
+      mutate(Id_scr = factor(Id_scr), CollectorXyear = factor(CollectorXyear))
     rhs <- c("s(Elev_mean_z, k = 4)", "s(Tot_prec_mean_z, k = 4)", "canopy_10k_z", "pool_wes_z",
              if (response_arm == "cmax") "Num_pc_log_z", "doy_sin", "doy_cos",
-             "s(Id_gcs, bs = 're')", "s(CollectorXyear, bs = 're')")
+             "s(Id_scr, bs = 're')", "s(CollectorXyear, bs = 're')")
     m <- mgcv::gam(as.formula(paste("log_response ~", paste(rhs, collapse = " + "))), data = df, method = "REML")
     st <- summary(m)$s.table
     tibble(response_arm, hill,

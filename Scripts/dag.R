@@ -26,7 +26,7 @@ dir.create("Derived/Excels", recursive = TRUE, showWarnings = FALSE)
 # LandForest     Amount of woody-vegetation cover in the surrounding *landscape* -- WVCC canopy in the ~10 km buffer (the 02b scale-of-effect radius). At that scale it is set by topography, protected areas and hundreds of landholders, NOT by any one farmer -- so it takes no arrow from FarmDiv and is a PRECISION covariate (predicts BirdDiv, reduces residual variance), not a confounder to adjust. R^2 ~ 0.45 with Ecoregion; ~58% of its SD is within-region.
 # NumPC          Number of distinct point counts in the assemblage (per [farm x team x year], confirmed -- not per farm). Sampling effort.
 # Season         Calendar timing of the surveys within the season (Nearctic-migrant influx Oct-Mar). All modelled data is "Early" season, so this is purely the within-Early calendar position. Column: mean Julian day -> doy_sin/doy_cos.
-# Year           Survey year-group (Ano_grp: 13_14, 16_17, 19, 22, 24, 25_26). Fixed Year was dropped from 04 (near-collinear with Observer); folded into the Observer/CollectorXyear RE. Kept as a node because the sampling-scope change (see NumHab under "Variables to consider") is a Year effect.
+# Year           Survey year-group (Year_grp: 13_14, 16_17, 19, 22, 24, 25_26). Fixed Year was dropped from 04 (near-collinear with Observer); folded into the Observer/CollectorXyear RE. Kept as a node because the sampling-scope change (see NumHab under "Variables to consider") is a Year effect.
 # Observer       The data collector x year-group batch = one of 6 field teams / 8 CollectorXyear levels (Gaica-mbd, Cipav, Gaica-distancia, Unillanos, UBC-mbd, UBC-gaica). Protocol + which farms + which habitats surveyed. NOT the individual observer (not in the data). Region-bound (4 of 6 teams are Piedemonte-only). = the CollectorXyear random effect.
 
 # The DAG ----
@@ -133,7 +133,7 @@ print(head(ici, 20))
 data_path <- "Derived/Excels/Farm_mgmt_model_data.csv"
 if (file.exists(data_path)) {
   d <- read_csv(data_path, show_col_types = FALSE) %>%
-    distinct(Id_gcs, .keep_all = TRUE)   # farm-level covariates: one row per farm
+    distinct(Id_scr, .keep_all = TRUE)   # farm-level covariates: one row per farm
 
   p_of <- function(fit, term) tryCatch(summary(fit)$coefficients[term, "Pr(>|t|)"], error = function(e) NA_real_)
   indices <- c("Land_use_div", "Water_mgmt_div", "Pasture_mgmt_div", "All_practices_div")

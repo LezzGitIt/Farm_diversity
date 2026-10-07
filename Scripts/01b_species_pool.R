@@ -6,9 +6,9 @@
 ###   1. GEOSPATIAL -- the species' Ayerbe Colombian range polygon contains the farm (point-in-polygon).
 ###   2. ELEVATIONAL -- the farm elevation falls within the species elevational range (no buffer). Elevational limits are layered by source priority: Suarez-Castro et al. (2024) AOH table S3 (1,652 spp), then the manual book digitisations from ../Ssp-bird-data-wrangling/Scripts/03_FT_elev.R -- Hazen's read-out of the Ayerbe-Quinones (2018) field guide, then Hazen's read-out of Hilty. Species still without a limit (~13%, mostly Nearctic migrants / seabirds) pass this step unfiltered.
 
-### Also builds RANGE-RARITY-WEIGHTED pool metrics (Aaron's idea) from AVONET global range sizes: `pool_we` (weighted endemism, Sum 1/range), `pool_wes` (softer, Sum 1/sqrt range), `pool_cwe` (corrected -- proportion range-restricted), `pool_rr` (count of restricted-range species, < 50,000 km2 BirdLife EBA criterion). The hypothesis: total pool richness tracks contemporary climate (why `pool_point` is redundant), but the range-restricted component tracks biogeographic history, which `Ecoregion` carries and climate does not -- so a weighted metric may be the non-redundant compositional axis. `Data/Farm_species_pool.csv` carries all of them.
+### Also builds RANGE-RARITY-WEIGHTED pool metrics (Aaron's idea) from AVONET global range sizes: `pool_we` (weighted endemism, Sum 1/range), `pool_wes` (softer, Sum 1/sqrt range), `pool_cwe` (corrected -- proportion range-restricted), `pool_rr` (count of restricted-range species, < 50,000 km2 BirdLife EBA criterion). The hypothesis: total pool richness tracks contemporary climate (why `pool_point` is redundant), but the range-restricted component tracks biogeographic history, which `Ecoregion` carries and climate does not -- so a weighted metric may be the non-redundant compositional axis. `Derived/Excels/Farm_species_pool.csv` carries all of them.
 
-### Outputs -> Data/Farm_species_pool.csv, treated as raw input like Data/Farm_covariates.csv. The combined Ayerbe range layer is cached in Data/Geospatial/Ayerbe_ranges.gpkg (the 1,890 shapefile reads are slow on a cold OneDrive).
+### Outputs -> Derived/Excels/Farm_species_pool.csv (read by Scripts/02b / 04a / 04b). The combined Ayerbe range layer is cached in Data/Geospatial/Ayerbe_ranges.gpkg (the 1,890 shapefile reads are slow on a cold OneDrive).
 
 ### OUTCOME (2026-08-29): `pool_point ~ poly(Elev,2) + poly(precip,2)` R^2 = 0.87 (unique: elev 0.29, precip 0.45, shared 0.12). Scripts/04b_farm_mgmt_robustness.R (pool_blocks section) tested it properly (blocks that never combine all three axes) and it does not change the management coefficients -> NOT added to 04a, kept for the record. Along the way the pool_blocks section + Derived/Excels/Precip_vs_elev_sensitivity.csv showed the pasture/water "signal" in the climate spec is residual PRECIPITATION confounding (Pasture_mgmt_div ~ precip r = 0.30), not a missing species-pool axis; see Project_notes.md.
 ### OUTCOME (weighted-endemism metrics, 2026-08-31): the hypothesis holds. `pool_we` / `pool_cwe` are much LESS climate-redundant than the raw count: R^2(~ poly(elev,2)+poly(precip,2)) drops from 0.87 (pool_point) to 0.43-0.45, and the within-Ecoregion fraction rises from 0.22 to 0.72. They are negatively correlated with `pool_point` (r ~ -0.5) -- a genuinely different axis: the Andean coffee region (Cafetera) and Boyaca-Santander are the endemism hotspots, the species-rich lowlands (Piedemonte, Bajo Magdalena) are endemism-poor. `pool_rr` (raw count < 50k km2) stays climate-bound (R^2 0.85, r_elev 0.90 -- restricted-range birds are overwhelmingly Andean, so counting them tracks elevation); `pool_wes` (softer weight) is intermediate (0.66). So the full 1/range weighting (`pool_we`, or `pool_cwe`) is the one worth testing in 04d / 04h as the compositional biogeographic axis the raw count misses. Caveats: still r ~ 0.6 with elevation and ~0.48 R^2 with Ecoregion (not clean); the metric has a huge dynamic range driven by a handful of ultra-narrow-range species, so check robustness (drop-one-species).
@@ -111,8 +111,8 @@ message(sum(!is.na(range_km2)), " of ", length(range_km2), " range-polygon speci
 
 # Farms ----
 
-fc <- read_csv("Data/Farm_covariates.csv", show_col_types = FALSE) %>%
-  mutate(Id_gcs = as.character(Id_gcs))
+fc <- read_csv("Derived/Excels/Farm_covariates.csv", show_col_types = FALSE) %>%
+  mutate(Id_scr = as.character(Id_scr))
 farms <- st_as_sf(fc, coords = c("Long_mean", "Lat_mean"), crs = 4326)
 
 elo <- set_names(elev_lookup$elev_lo, elev_lookup$species)
@@ -130,7 +130,7 @@ Farm_species_pool <- map_dfr(seq_len(nrow(farms)), function(i) {
   sp_pool <- sp_geo[in_band]                      # the species pool for this farm
   rk <- range_km2[sp_pool]; rk <- rk[!is.na(rk)]  # their global range sizes (drop the ~2% without one)
   tibble(
-    Id_gcs = fc$Id_gcs[i],
+    Id_scr = fc$Id_scr[i],
     pool_geo_point = length(sp_geo),
     pool_point     = length(sp_pool),
     ## weighted endemism (Williams et al. 1996; Crisp et al. 2001): sum of inverse range sizes, in units of 1 / million km^2
@@ -145,12 +145,12 @@ Farm_species_pool <- map_dfr(seq_len(nrow(farms)), function(i) {
   )
 })
 
-write_csv(Farm_species_pool, "Data/Farm_species_pool.csv")
+write_csv(Farm_species_pool, "Derived/Excels/Farm_species_pool.csv")
 
 # Diagnostics ----
 
 pool_eco <- Farm_species_pool %>%
-  left_join(fc %>% select(Id_gcs, Ecoregion, Elev_mean, Tot_prec_mean), by = "Id_gcs")
+  left_join(fc %>% select(Id_scr, Ecoregion, Elev_mean, Tot_prec_mean), by = "Id_scr")
 
 cat("\n== pool_point per farm (mean [range]) ==\n")
 pool_eco %>%

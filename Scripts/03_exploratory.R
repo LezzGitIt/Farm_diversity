@@ -16,11 +16,11 @@ dir.create("Derived/Excels", recursive = TRUE, showWarnings = FALSE)
 
 # Load data ----
 
-## Matched farm diversification indices (only farms with an associated bird biodiversity estimate; see Scripts/01a_farm_data.R) and the un-matched farms, kept for the representativeness check below. The matched file now carries Ecoregion and the farm-level climate covariates (added in 01a from Data/Farm_covariates.csv).
+## Matched farm diversification indices (only farms with an associated bird biodiversity estimate; see Scripts/01a_farm_data.R) and the un-matched farms, kept for the representativeness check below. The matched file now carries Ecoregion and the farm-level climate covariates (added in 01a from Derived/Excels/Farm_covariates.csv).
 Farm_div_matched <- read_csv("Derived/Excels/Farm_diversity_matched.csv", show_col_types = FALSE) %>%
-  mutate(Id_gcs = as.character(Id_gcs))
+  mutate(Id_scr = as.character(Id_scr))
 Farm_div_unmatched <- read_csv("Derived/Excels/Farm_diversity_unmatched.csv", show_col_types = FALSE) %>%
-  mutate(Id_gcs = as.character(Id_gcs))
+  mutate(Id_scr = as.character(Id_scr))
 
 Farm_div_eco <- Farm_div_matched
 
@@ -43,7 +43,7 @@ bird_metric_labels <- c(
   Simpson_mean = "Simpson (q = 2)"
 )
 
-## Farm-level environmental covariates for the by-ecoregion comparison. Canopy / elevation / biomass are the MJE per-farm medians; temperature and precipitation are the point-count means from Data/Farm_covariates.csv (joined in 01). Temperature is included to show it is ~ -elevation (r about -0.99); precipitation is a more independent axis.
+## Farm-level environmental covariates for the by-ecoregion comparison. Canopy / elevation / biomass are the MJE per-farm medians; temperature and precipitation are the point-count means from Derived/Excels/Farm_covariates.csv (joined in 01). Temperature is included to show it is ~ -elevation (r about -0.99); precipitation is a more independent axis.
 covar_names <- c("WVCC_median", "DEM_median", "Biomasa_median", "Avg_temp_mean", "Tot_prec_mean")
 covar_labels <- c(
   WVCC_median = "Canopy cover (WVCC)",
@@ -59,7 +59,7 @@ div_level_order <- unname(div_index_labels)
 # Distribution of the four diversity indices ----
 
 p_distributions <- Farm_div_matched %>%
-  select(Id_gcs, all_of(div_index_names)) %>%
+  select(Id_scr, all_of(div_index_names)) %>%
   pivot_longer(cols = all_of(div_index_names), names_to = "Index", values_to = "Value") %>%
   mutate(Index = factor(recode(Index, !!!div_index_labels), levels = div_level_order)) %>%
   ggplot(aes(x = Value)) +
@@ -114,7 +114,7 @@ p_matched_compare <- bind_rows(
   Farm_div_matched %>% mutate(Match_status = "Matched"),
   Farm_div_unmatched %>% mutate(Match_status = "No biodiversity estimate")
 ) %>%
-  select(Id_gcs, Match_status, all_of(div_index_names)) %>%
+  select(Id_scr, Match_status, all_of(div_index_names)) %>%
   pivot_longer(cols = all_of(div_index_names), names_to = "Index", values_to = "Value") %>%
   mutate(Index = factor(recode(Index, !!!div_index_labels), levels = div_level_order)) %>%
   ggplot(aes(x = Match_status, y = Value, fill = Match_status)) +
@@ -144,17 +144,17 @@ Farm_div_eco <- Farm_div_eco %>%
   mutate(Ecoregion = factor(Ecoregion, levels = ecoregion_order))
 
 Div_long <- Farm_div_eco %>%
-  select(Id_gcs, Ecoregion, all_of(div_index_names)) %>%
+  select(Id_scr, Ecoregion, all_of(div_index_names)) %>%
   pivot_longer(all_of(div_index_names), names_to = "Index", values_to = "Value") %>%
   mutate(Index = factor(recode(Index, !!!div_index_labels), levels = div_level_order))
 
 Bird_long <- Farm_div_eco %>%
-  select(Id_gcs, Ecoregion, all_of(bird_metric_names)) %>%
+  select(Id_scr, Ecoregion, all_of(bird_metric_names)) %>%
   pivot_longer(all_of(bird_metric_names), names_to = "Metric", values_to = "Value") %>%
   mutate(Metric = factor(recode(Metric, !!!bird_metric_labels), levels = unname(bird_metric_labels)))
 
 Covar_long <- Farm_div_eco %>%
-  select(Id_gcs, Ecoregion, all_of(covar_names)) %>%
+  select(Id_scr, Ecoregion, all_of(covar_names)) %>%
   pivot_longer(all_of(covar_names), names_to = "Covariate", values_to = "Value") %>%
   mutate(Covariate = factor(recode(Covariate, !!!covar_labels), levels = unname(covar_labels)))
 

@@ -20,7 +20,8 @@ question, confounding structure, approach, preliminary results, interpretation.
 
 ```
 Scripts/
-  Model_fns.R                    # Shared helpers (file picker + the brms model machinery)
+  Model_fns.R                    # Shared helpers: input locations (data-paper path, pinned 00 export
+                                 #   version) + the brms model machinery
   dag.R                          # Assumed causal DAG behind the models -> Figures/DAG.png
 
   00_bird_diversity_estimates.R  # Point counts -> per-assemblage Hill-number diversity (two estimates:
@@ -49,12 +50,19 @@ Scripts/
 
 `00`–`02b` are data prep plus the landscape-forest scale-of-effect analysis;
 `03` is exploratory work to understand the data;
-`04`–`05` are the management-diversification analysis. Generated data, models and
-figures are written to `Data/`, `Derived/` and `Figures/` and are not tracked.
+`04`–`05` are the management-diversification analysis. Generated tables, models and
+figures are written to `Derived/` and `Figures/` (plus the cached canopy extraction in
+`Data/Geospatial/`); none are tracked.
 
 ## Running the analysis
 
-Scripts use paths relative to the project root and are numbered in run order:
+Scripts use paths relative to the project root and are numbered in run order. The bird
+point-count tables are read from the sibling data-paper repo
+(`../Ssp-bird-data-wrangling/Derived/Excels/`, English column names; set
+`WRANGLING_EXCELS` in `Scripts/Model_fns.R`). Every script downstream of `00` reads the
+diversity export whose date stamp is pinned by `TAX_DIV_VERSION` in `Model_fns.R` --
+after re-running `00`, update that value deliberately (re-running `00` alone does not
+change what the models see).
 
 ``` r
 source("Scripts/00_bird_diversity_estimates.R")   # slow (~1 h); re-run only when the point-count data changes

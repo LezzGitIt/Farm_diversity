@@ -34,7 +34,7 @@ bare <- function(p) p + labs(title = NULL, subtitle = NULL)
 hill_lab  <- c(richness = "Richness (q = 0)", shannon = "Shannon (q = 1)", simpson = "Simpson (q = 2)")
 index_lab <- c(baseline = "(baseline)", Land_use_div = "Land use", Water_mgmt_div = "Water mgmt", Pasture_mgmt_div = "Pasture mgmt", All_practices_div = "All practices")
 
-md <- read_csv("Derived/Excels/Farm_mgmt_model_data.csv", show_col_types = FALSE) %>% distinct(Id_gcs, .keep_all = TRUE)
+md <- read_csv("Derived/Excels/Farm_mgmt_model_data.csv", show_col_types = FALSE) %>% distinct(Id_scr, .keep_all = TRUE)
 idx_prec_r <- map_dbl(names(index_lab)[-1], ~ cor(md[[.x]], md$Tot_prec_mean, use = "pairwise")) %>%
   set_names(names(index_lab)[-1])
 ```
@@ -60,7 +60,7 @@ It links two datasets produced independently:
   Jimena Esquivel): 'land use', 'water management', 'pasture
   management', and an overall "all practices" composite.
 
-Joined on farm ID, `r n_distinct(md$Id_gcs)` farms have both a diversity
+Joined on farm ID, `r n_distinct(md$Id_scr)` farms have both a diversity
 estimate and at least one diversification index, and several farms have
 multiple diversity estimates through time, giving
 \~`r nrow(read_csv("Derived/Excels/Farm_mgmt_model_data.csv", show_col_types = FALSE) %>% filter(Hill == "shannon"))`

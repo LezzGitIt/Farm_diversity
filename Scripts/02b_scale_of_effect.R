@@ -2,7 +2,7 @@
 
 ### For each concentric-disc radius from Scripts/02a_extract_canopy_buffers.R, fit a mixed model of assemblage-level diversity on standardized canopy cover at that radius, and read off which radius adds the most explained variance (largest gain in marginal R^2 over a matching null without the canopy term; equivalently the largest AIC improvement). That radius is the "scale of effect" for canopy cover, and it is the radius Scripts/04a uses for the landscape-forest covariate.
 
-### ONE adjustment set -- the same covariates the Scripts/04a 'component' spec uses (minus the landscape-forest term, which is what is being varied): elevation + elevation^2 + precipitation + precipitation^2 + the range-rarity-weighted species pool (pool_wes, Scripts/01b) + sampling effort (log number of point counts) + cyclic day-of-year + (1 | CollectorXyear) + (1 | Id_gcs). So the chosen radius is optimal for the model that is actually fitted downstream, not for some other adjustment set. (An earlier version of this script compared five exploratory adjustment sets -- raw / topography / Mundlak -- showing the canopy effect flips sign and scale with the adjustment; that was a diagnostic, not needed for the radius decision, and was removed 2026-09-02.)
+### ONE adjustment set -- the same covariates the Scripts/04a 'component' spec uses (minus the landscape-forest term, which is what is being varied): elevation + elevation^2 + precipitation + precipitation^2 + the range-rarity-weighted species pool (pool_wes, Scripts/01b) + sampling effort (log number of point counts) + cyclic day-of-year + (1 | CollectorXyear) + (1 | Id_scr). So the chosen radius is optimal for the model that is actually fitted downstream, not for some other adjustment set. (An earlier version of this script compared five exploratory adjustment sets -- raw / topography / Mundlak -- showing the canopy effect flips sign and scale with the adjustment; that was a diagnostic, not needed for the radius decision, and was removed 2026-09-02.)
 
 ### Primary response: q = 0 non-asymptotic richness (`No_Asy_TD`, coverage65 export). q = 1 / q = 2 asymptotic diversity are run alongside. The 3 Ref_* reference sites (not SCR farms) are dropped.
 
@@ -12,13 +12,12 @@ library(lme4)
 library(MuMIn)
 library(cowplot)
 
-source("Scripts/Model_fns.R")   # latest_file()
+source("Scripts/Model_fns.R")   # WRANGLING_EXCELS, tax_div_path()
 ggplot2::theme_set(theme_cowplot())
 
 dir.create("Figures", showWarnings = FALSE)
 dir.create("Derived/Excels", recursive = TRUE, showWarnings = FALSE)
 
-wrangling_excels <- "../Ssp-bird-data-wrangling/Derived/Excels/"
 
 radii_m <- c(seq(200, 2000, by = 200), seq(3000, 10000, by = 1000))
 
@@ -26,34 +25,34 @@ radii_m <- c(seq(200, 2000, by = 200), seq(3000, 10000, by = 1000))
 
 ## Canopy cover per [assemblage x radius], frozen by Scripts/02a_extract_canopy_buffers.R (mean canopy within r m of the convex hull of the assemblage's point counts, from its own survey-year raster)
 Canopy_by_scale <- read_csv("Data/Geospatial/Canopy_by_scale_assemblage.csv", show_col_types = FALSE) %>%
-  mutate(Id_gcs = as.character(Id_gcs))
+  mutate(Id_scr = as.character(Id_scr))
 
 ## Farm-level covariates: ecoregion, elevation, precipitation (Scripts/01a_farm_data.R) + range-rarity-weighted species pool (Scripts/01b_species_pool.R)
-Farm_covariates <- read_csv("Data/Farm_covariates.csv", show_col_types = FALSE) %>%
-  mutate(Id_gcs = as.character(Id_gcs)) %>%
-  select(Id_gcs, Ecoregion, Elev_mean, Tot_prec_mean) %>%
-  left_join(read_csv("Data/Farm_species_pool.csv", show_col_types = FALSE) %>%
-              mutate(Id_gcs = as.character(Id_gcs)) %>% select(Id_gcs, pool_wes),
-            by = "Id_gcs")
+Farm_covariates <- read_csv("Derived/Excels/Farm_covariates.csv", show_col_types = FALSE) %>%
+  mutate(Id_scr = as.character(Id_scr)) %>%
+  select(Id_scr, Ecoregion, Elev_mean, Tot_prec_mean) %>%
+  left_join(read_csv("Derived/Excels/Farm_species_pool.csv", show_col_types = FALSE) %>%
+              mutate(Id_scr = as.character(Id_scr)) %>% select(Id_scr, pool_wes),
+            by = "Id_scr")
 
-Site_covs <- read_csv(paste0(wrangling_excels, "Site_covs.csv"), show_col_types = FALSE) %>%
-  mutate(Id_gcs = as.character(Id_gcs)) %>%
-  select(Id_muestreo_no_dc, Id_gcs)
+Site_covs <- read_csv(file.path(WRANGLING_EXCELS, "Site_covs.csv"), show_col_types = FALSE) %>%
+  mutate(Id_scr = as.character(Id_scr)) %>%
+  select(Id_survey_no_dc, Id_scr)
 
 ## Assemblage = [data collector . farm . year-group . season]; one Event_covs row per point-count survey
-Assemblage_surveys <- read_csv(paste0(wrangling_excels, "Event_covs.csv"), show_col_types = FALSE) %>%
-  left_join(Site_covs, by = "Id_muestreo_no_dc") %>%
-  filter(!is.na(Ano)) %>%
+Assemblage_surveys <- read_csv(file.path(WRANGLING_EXCELS, "Event_covs.csv"), show_col_types = FALSE) %>%
+  left_join(Site_covs, by = "Id_survey_no_dc") %>%
+  filter(!is.na(Year)) %>%
   mutate(
-    Id_gcs = as.character(Id_gcs),
-    Assemblage = str_replace_all(paste(Uniq_db, Id_gcs, Ano_grp, Season, sep = "."), " |-", "_"),
-    CollectorXyear = paste(Uniq_db, Ano_grp, sep = "_")
+    Id_scr = as.character(Id_scr),
+    Assemblage = str_replace_all(paste(Uniq_db, Id_scr, Year_grp, Season, sep = "."), " |-", "_"),
+    CollectorXyear = paste(Uniq_db, Year_grp, sep = "_")
   )
 
 ## Diversity estimates: q = 0 from the coverage65 export, q = 1 / q = 2 (asymptotic) from all_farms
-all_farms_export <- latest_file("Derived/Excels", "^Tax_div_all_farms_.*\\.csv$")
+all_farms_export <- tax_div_path("all_farms")
 
-Td_q0 <- read_csv(latest_file("Derived/Excels", "^Tax_div_coverage65_.*\\.csv$"), show_col_types = FALSE) %>%
+Td_q0 <- read_csv(tax_div_path("coverage65"), show_col_types = FALSE) %>%
   filter(Order.q == 0) %>%
   transmute(Assemblage, richness_q0 = No_Asy_TD)
 
@@ -68,13 +67,13 @@ Td_q12 <- read_csv(all_farms_export, show_col_types = FALSE) %>%
 ## Canopy is already per assemblage (02a); attach the collector-x-year batch key, sampling effort, mean day of year, farm covariates, and the diversity responses
 Assemblage_keys <- Assemblage_surveys %>%
   summarize(CollectorXyear = first(CollectorXyear),
-            Num_pc = n_distinct(Id_muestreo),
-            doy = mean(Julian_day, na.rm = TRUE), .by = c(Assemblage, Id_gcs))
+            Num_pc = n_distinct(Id_survey),
+            doy = mean(Julian_day, na.rm = TRUE), .by = c(Assemblage, Id_scr))
 
 Scale_data <- Canopy_by_scale %>%
-  filter(!str_detect(Id_gcs, "^Ref")) %>%
-  left_join(Assemblage_keys, by = c("Assemblage", "Id_gcs")) %>%
-  left_join(Farm_covariates, by = "Id_gcs") %>%
+  filter(!str_detect(Id_scr, "^Ref")) %>%
+  left_join(Assemblage_keys, by = c("Assemblage", "Id_scr")) %>%
+  left_join(Farm_covariates, by = "Id_scr") %>%
   left_join(Td_q0, by = "Assemblage") %>%
   left_join(Td_q12, by = "Assemblage") %>%
   mutate(
@@ -94,7 +93,7 @@ cat("Assemblages with canopy at all radii:", n_distinct(Scale_data$Assemblage),
 ## The Scripts/04a 'component' adjustment set (minus the landscape-forest term, which is the focal canopy term here)
 other_fixed <- paste("elev_z + I(elev_z^2) + precip_z + I(precip_z^2) + pool_wes_z",
                      "num_pc_log_z + doy_sin + doy_cos", sep = " + ")
-re    <- "(1 | CollectorXyear) + (1 | Id_gcs)"
+re    <- "(1 | CollectorXyear) + (1 | Id_scr)"
 focal <- "canopy_z"
 
 # Fit one radius x response ----

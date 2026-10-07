@@ -3,7 +3,7 @@
 ### An assemblage = [data collector . farm . year-group . season]. This script produces TWO diversity estimates per assemblage, from the same point-count data:
 
 ### ESTIMATE A -- point-count-standardised (iNEXT incidence). Treated as equal evidence to Estimate B, not primary/sensitivity (Aaron 2026-08-31); one goes in the main text, one in the supplement.
-###   Sampling unit = a point-count LOCATION (`Id_muestreo`); a species is scored present (1) if it was detected there on any visit. Diversity (Hill q = 0/1/2) is then rarefied / extrapolated to a common NUMBER OF POINT COUNTS, m* (`estimateD(base = "size", level = m*)`), i.e. "expected diversity if this assemblage had been surveyed with m* point counts". This standardises SPATIAL survey effort directly, so the estimate carries essentially no `Num_pc` signal (effort R^2 ~ 0.02 vs ~0.34 for the coverage-based richness) and Scripts/04a does not need `Num_pc` as a covariate. m* = 6: iNEXT's own `min(2 x reference size)` rule once assemblages with < `min_pc` = 3 point counts are dropped (keeps ~102 of 112), and also the median effort.
+###   Sampling unit = a point-count LOCATION (`Id_survey`); a species is scored present (1) if it was detected there on any visit. Diversity (Hill q = 0/1/2) is then rarefied / extrapolated to a common NUMBER OF POINT COUNTS, m* (`estimateD(base = "size", level = m*)`), i.e. "expected diversity if this assemblage had been surveyed with m* point counts". This standardises SPATIAL survey effort directly, so the estimate carries essentially no `Num_pc` signal (effort R^2 ~ 0.02 vs ~0.34 for the coverage-based richness) and Scripts/04a does not need `Num_pc` as a covariate. m* = 6: iNEXT's own `min(2 x reference size)` rule once assemblages with < `min_pc` = 3 point counts are dropped (keeps ~102 of 112), and also the median effort.
 ###   CAVEATS (carry these into any write-up):
 ###     * INCIDENCE needs 0/1 cell values -- so with the LOCATION as the sampling unit, repeat visits are POOLED to presence/absence: a species detected once and one detected on every visit both score 1. Within-point-count and within-visit abundance is discarded, so q = 1 / q = 2 are INCIDENCE-based Hill numbers (built from among-point-count occupancy frequencies), not abundance-weighted diversity. (Pooling is a consequence of the unit choice, not a requirement of incidence -- visit-as-unit keeps visit-level info, see next caveat.)
 ###     * ALL POINT COUNTS ARE TREATED AS EQUIVALENT UNITS regardless of protocol. The 6 datasets differ in point-count DURATION (CIPAV / Gaica-mbd variable, up to 90 min; the rest 10 min), RADIUS (25 vs 50 m), and NUMBER OF VISITS (CIPAV 1; the rest 3-5). Standardising the NUMBER of point counts does not standardise the effort PER point count -- a longer / wider / more-revisited count detects more species, so its incidence column is fuller and the assemblage reads higher. Choosing the visit as the unit would let iNEXT's incidence model use detection frequency, but then the incidence sample size = locations x visits, which is not comparable across the single-visit vs multi-visit datasets. Between-dataset protocol differences are therefore left to `(1 | CollectorXyear)` in Scripts/04a, NOT removed at estimation. (The abundance / Cmax estimate handles per-count duration/radius somewhat better -- individuals / coverage is a finer effort currency than "number of counts" -- but leaves the number-of-counts residual. Each approach trades one confound for another; hence report both.)
@@ -29,19 +29,18 @@ library(iNEXT)
 library(iNEXT.4steps)
 library(cowplot)
 
-source("Scripts/Model_fns.R")   # latest_file()
+source("Scripts/Model_fns.R")   # WRANGLING_EXCELS, tax_div_path()
 
 ### `conflicted` not used -- iNEXT / iNEXT.4steps do not mask the dplyr verbs. If a package added later does, qualify the call (dplyr::select, etc.) rather than reaching for conflicted.
 
 ggplot2::theme_set(theme_cowplot())
 
-wrangling_excels <- "../Ssp-bird-data-wrangling/Derived/Excels"
 dir.create("Derived/Excels", recursive = TRUE, showWarnings = FALSE)
 dir.create("Figures", showWarnings = FALSE)
 set.seed(1989)
 
 ## Row identifier for an assemblage
-row_id <- c("Uniq_db", "Id_gcs", "Ano_grp", "Season")
+row_id <- c("Uniq_db", "Id_scr", "Year_grp", "Season")
 
 ## Bootstrap replicates -- 500 so the per-assemblage SEs are stable enough to use as measurement error downstream (Scripts/04a). Shared by the incidence and the abundance passes.
 nboot <- 500
@@ -53,25 +52,25 @@ min_pc <- 3
 ## ESTIMATE B (abundance) low-coverage cutoff for pass 2
 sc_threshold <- 0.65
 
-## The abundance sensitivity is the slow part (iNEXT4steps x 2 passes, ~1 h). Its logic is unchanged from the previous version of this script, so set FALSE to re-do only the fast incidence estimate; the comparison section then reads the latest existing abundance exports. Set TRUE for a full refresh (new point-count data, or new date stamp for all three).
+## The abundance sensitivity is the slow part (iNEXT4steps x 2 passes, ~1 h). Its logic is unchanged from the previous version of this script, so set FALSE to re-do only the fast incidence estimate; the comparison section then reads the abundance exports pinned by TAX_DIV_VERSION (Model_fns.R). Set TRUE for a full refresh (new point-count data, or new date stamp for all three), then bump TAX_DIV_VERSION to the new date.
 run_abundance_sensitivity <- TRUE
 
 today <- format(Sys.Date(), "%m.%d.%y")
 
 # Load and link the point-count data ----
 
-Bird_pcs <- read_csv(file.path(wrangling_excels, "Bird_pcs/Bird_pcs_analysis.csv"),
+Bird_pcs <- read_csv(file.path(WRANGLING_EXCELS, "Bird_pcs/Bird_pcs_analysis.csv"),
                      show_col_types = FALSE)
-Site_covs <- read_csv(file.path(wrangling_excels, "Site_covs.csv"), show_col_types = FALSE)
-Event_covs <- read_csv(file.path(wrangling_excels, "Event_covs.csv"), show_col_types = FALSE)
+Site_covs <- read_csv(file.path(WRANGLING_EXCELS, "Site_covs.csv"), show_col_types = FALSE)
+Event_covs <- read_csv(file.path(WRANGLING_EXCELS, "Event_covs.csv"), show_col_types = FALSE)
 
 ## One row per point-count survey with the assemblage identifier and habitat attached
 Event_covs2 <- Site_covs %>%
-  select(Id_muestreo_no_dc, Id_gcs, Habitat) %>%
+  select(Id_survey_no_dc, Id_scr, Habitat) %>%
   left_join(
-    Event_covs %>% select(Id_muestreo_no_dc, Id_muestreo, Uniq_db, Fecha, Pc_start,
-                          Ano_grp, Season, Rep_ano_grp),
-    by = "Id_muestreo_no_dc"
+    Event_covs %>% select(Id_survey_no_dc, Id_survey, Uniq_db, Date, Pc_start,
+                          Year_grp, Season, Rep_year_grp),
+    by = "Id_survey_no_dc"
   ) %>%
   mutate(
     Identifier = pmap_chr(across(all_of(row_id)), ~ paste(..., sep = ".")),
@@ -79,14 +78,14 @@ Event_covs2 <- Site_covs %>%
   )
 
 Bird_pcs_linked <- Bird_pcs %>%
-  left_join(Event_covs2, by = c("Id_muestreo", "Id_muestreo_no_dc", "Fecha", "Pc_start")) %>%
-  filter(!is.na(Id_gcs), Season != "Late") %>%
-  mutate(Id_muestreo = str_replace_all(Id_muestreo, "-", "_"))
+  left_join(Event_covs2, by = c("Id_survey", "Id_survey_no_dc", "Date", "Pc_start")) %>%
+  filter(!is.na(Id_scr), Season != "Late") %>%
+  mutate(Id_survey = str_replace_all(Id_survey, "-", "_"))
 
 ## Number of distinct habitat types surveyed per assemblage -- a sampling-scope covariate carried in both exports
 num_hab <- Event_covs2 %>%
-  filter(!is.na(Id_gcs)) %>%
-  distinct(Identifier, Id_muestreo, Habitat) %>%
+  filter(!is.na(Id_scr)) %>%
+  distinct(Identifier, Id_survey, Habitat) %>%
   summarize(Num.hab = as.factor(n_distinct(Habitat)), .by = Identifier)
 
 # ============================================================================
@@ -95,14 +94,14 @@ num_hab <- Event_covs2 %>%
 
 ## [assemblage x point count x species] -- detections summed across repeat visits, then binarised
 Pc_species <- Bird_pcs_linked %>%
-  summarize(Count = sum(Count), .by = c(Identifier, Id_muestreo, Species_ayerbe))
+  summarize(Count = sum(Count), .by = c(Identifier, Id_survey, Species_ayerbe))
 
 ## Per-assemblage species x point-count incidence (0/1) matrix -- the format estimateD() wants for datatype = "incidence_raw"
 incidence_matrix <- function(df) {
   df %>%
     mutate(present = 1L) %>%
-    select(Id_muestreo, Species_ayerbe, present) %>%
-    pivot_wider(names_from = Id_muestreo, values_from = present, values_fill = 0L) %>%
+    select(Id_survey, Species_ayerbe, present) %>%
+    pivot_wider(names_from = Id_survey, values_from = present, values_fill = 0L) %>%
     column_to_rownames("Species_ayerbe") %>%
     as.matrix()
 }
@@ -148,7 +147,7 @@ cat("Wrote Tax_div_incidence_", today, ".csv: ",
 # ESTIMATE B: abundance diversity, coverage-standardised (iNEXT 4-steps) ----
 # ============================================================================
 
-## Skipped when run_abundance_sensitivity = FALSE -- the comparison section then reads the latest existing Tax_div_all_farms / _coverage65 exports.
+## Skipped when run_abundance_sensitivity = FALSE -- the comparison section then reads the pinned (TAX_DIV_VERSION) Tax_div_all_farms / _coverage65 exports.
 if (run_abundance_sensitivity) {
 
 ## Sum counts within [assemblage x day x repeat], then across days, then widen to species x assemblage. Summing (not averaging) keeps the abundances iNEXT needs consistent with the accumulating species pool.
@@ -157,7 +156,7 @@ build_matrix <- function(bird_data) {
     mutate(Identifier = pmap_chr(across(all_of(row_id)), ~ paste(..., sep = ".")),
            Identifier = str_replace_all(Identifier, " |-", "_")) %>%
     summarize(Count = sum(Count),
-              .by = c(Identifier, Species_ayerbe, Fecha, Rep_ano_grp)) %>%
+              .by = c(Identifier, Species_ayerbe, Date, Rep_year_grp)) %>%
     summarize(Count = sum(Count), .by = c(Identifier, Species_ayerbe)) %>%
     pivot_wider(names_from = Identifier, values_from = Count, values_fill = 0) %>%
     rename_with(~ str_replace_all(.x, " |-", "_")) %>%
@@ -257,11 +256,15 @@ cat("Wrote Tax_div_coverage65_", today, ".csv: ",
 # Compare the primary (incidence) and sensitivity (Cmax) estimates ----
 # ============================================================================
 
-## The current-pipeline (abundance) value for each Hill, from the latest exports (just-written if the passes ran, else the most recent on disk): q = 0 non-asymptotic at Cmax, q = 1 / 2 asymptotic.
+## The current-pipeline (abundance) value for each Hill: q = 0 non-asymptotic at Cmax, q = 1 / 2 asymptotic. From the passes just run, else from the pinned exports on disk.
+if (!run_abundance_sensitivity) {
+  td_c65 <- read_csv(tax_div_path("coverage65"), show_col_types = FALSE)
+  td_all <- read_csv(tax_div_path("all_farms"), show_col_types = FALSE)
+}
 abund <- bind_rows(
-  read_csv(latest_file("Derived/Excels", "^Tax_div_coverage65_.*\\.csv$"), show_col_types = FALSE) %>%
+  td_c65 %>%
     filter(Order.q == 0) %>% transmute(Assemblage, Hill = "richness", abund_qD = No_Asy_TD),
-  read_csv(latest_file("Derived/Excels", "^Tax_div_all_farms_.*\\.csv$"), show_col_types = FALSE) %>%
+  td_all %>%
     filter(Order.q %in% c(1, 2)) %>%
     transmute(Assemblage, Hill = if_else(Order.q == 1, "shannon", "simpson"), abund_qD = TD_asy)
 )

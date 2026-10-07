@@ -29,7 +29,7 @@
 library(tidyverse)
 library(brms)
 
-source("Scripts/Model_fns.R")   # MGMT_PRIORS, mgmt_bf(), fit_model_grid(), tidy_model_fits(), focal_fit_summary(), latest_file()
+source("Scripts/Model_fns.R")   # MGMT_PRIORS, mgmt_bf(), fit_model_grid(), tidy_model_fits(), focal_fit_summary(), WRANGLING_EXCELS, tax_div_path()
 
 ### `conflicted` is deliberately not loaded: its symbol shims break rstan's Stan-model compilation. This script attaches no package that masks the dplyr verbs.
 
@@ -79,18 +79,18 @@ grid_for <- function(key_prefix) {
 
 ## Farm-level table: the four diversification indices, ecoregion, farm climate covariates; farms with a bird biodiversity estimate (Scripts/01a_farm_data.R)
 Farm_level <- read_csv("Derived/Excels/Farm_diversity_matched.csv", show_col_types = FALSE) %>%
-  mutate(Id_gcs = as.character(Id_gcs))
+  mutate(Id_scr = as.character(Id_scr))
 
-## Assemblage diversity: q = 1 / q = 2 asymptotic from all_farms, q = 0 non-asymptotic from coverage65 (latest date-stamped exports from Scripts/00_bird_diversity_estimates.R)
-Td_asy <- read_csv(latest_file("Derived/Excels", "^Tax_div_all_farms_.*\\.csv$"), show_col_types = FALSE) %>%
-  mutate(Id_gcs = as.character(Id_gcs)) %>%
+## Assemblage diversity: q = 1 / q = 2 asymptotic from all_farms, q = 0 non-asymptotic from coverage65 (the Scripts/00 exports pinned by TAX_DIV_VERSION)
+Td_asy <- read_csv(tax_div_path("all_farms"), show_col_types = FALSE) %>%
+  mutate(Id_scr = as.character(Id_scr)) %>%
   filter(Order.q %in% c(1, 2)) %>%
-  transmute(Assemblage, Id_gcs, Uniq_db, Ano_grp, Season, Num.hab,
+  transmute(Assemblage, Id_scr, Uniq_db, Year_grp, Season, Num.hab,
             Hill = if_else(Order.q == 1, "shannon", "simpson"),
             response = TD_asy, response_se = `s.e.`)
 
-cov65 <- read_csv(latest_file("Derived/Excels", "^Tax_div_coverage65_.*\\.csv$"), show_col_types = FALSE) %>%
-  mutate(Id_gcs = as.character(Id_gcs))
+cov65 <- read_csv(tax_div_path("coverage65"), show_col_types = FALSE) %>%
+  mutate(Id_scr = as.character(Id_scr))
 
 ## q = 0 uses the non-asymptotic estimate + its coverage-based SE (`No_Asy_TD_se`), which only the current Scripts/00 emits. If the export predates that, q = 0 is still fitted but with a negligible placeholder SE (1e-4) -- an ordinary model, no measurement error. TEMPORARY: re-run once 00 finishes.
 q0_has_se <- "No_Asy_TD_se" %in% names(cov65)
@@ -100,24 +100,23 @@ if (!q0_has_se) {
 }
 Td_rich <- cov65 %>%
   filter(Order.q == 0) %>%
-  transmute(Assemblage, Id_gcs, Uniq_db, Ano_grp, Season, Num.hab,
+  transmute(Assemblage, Id_scr, Uniq_db, Year_grp, Season, Num.hab,
             Hill = "richness", response = No_Asy_TD,
             response_se = if (q0_has_se) No_Asy_TD_se else 1e-4 * No_Asy_TD)
 
 Tax_div_long <- bind_rows(Td_rich, Td_asy)
 
-## Assemblage sampling covariates from the point-count events: number of distinct point counts, mean day of year (migrant-season proxy), and mean distance of the point counts from the farm (Distancia_farm)
-wrangling_excels <- "../Ssp-bird-data-wrangling/Derived/Excels/"
+## Assemblage sampling covariates from the point-count events: number of distinct point counts, mean day of year (migrant-season proxy), and mean distance of the point counts from the farm (Distance_farm)
 
-Assemblage_covs <- read_csv(paste0(wrangling_excels, "Site_covs.csv"), show_col_types = FALSE) %>%
-  select(Id_muestreo_no_dc, Id_gcs, Distancia_farm) %>%
-  left_join(read_csv(paste0(wrangling_excels, "Event_covs.csv"), show_col_types = FALSE),
-            by = "Id_muestreo_no_dc") %>%
-  filter(!is.na(Ano)) %>%
-  mutate(Assemblage = str_replace_all(paste(Uniq_db, Id_gcs, Ano_grp, Season, sep = "."), " |-", "_")) %>%
-  summarize(Num_pc = n_distinct(Id_muestreo),
+Assemblage_covs <- read_csv(file.path(WRANGLING_EXCELS, "Site_covs.csv"), show_col_types = FALSE) %>%
+  select(Id_survey_no_dc, Id_scr, Distance_farm) %>%
+  left_join(read_csv(file.path(WRANGLING_EXCELS, "Event_covs.csv"), show_col_types = FALSE),
+            by = "Id_survey_no_dc") %>%
+  filter(!is.na(Year)) %>%
+  mutate(Assemblage = str_replace_all(paste(Uniq_db, Id_scr, Year_grp, Season, sep = "."), " |-", "_")) %>%
+  summarize(Num_pc = n_distinct(Id_survey),
             doy = mean(Julian_day, na.rm = TRUE),
-            dist_farm = mean(Distancia_farm, na.rm = TRUE), .by = Assemblage)
+            dist_farm = mean(Distance_farm, na.rm = TRUE), .by = Assemblage)
 
 ## Canopy cover in the surrounding 10 km (Scripts/02a) -- the landscape scale that best explains diversity; a confounder per the DAG, in both specs
 Canopy_10k <- read_csv("Data/Geospatial/Canopy_by_scale_assemblage.csv", show_col_types = FALSE) %>%
@@ -125,25 +124,25 @@ Canopy_10k <- read_csv("Data/Geospatial/Canopy_by_scale_assemblage.csv", show_co
   transmute(Assemblage, canopy_10k = canopy_cover)
 
 ## Range-rarity-weighted regional species pool (pool_wes = sum 1000 / sqrt(range); Scripts/01b) -- the DAG's SpeciesPool term, joined by farm; enters the CLIMATE spec only. Unlogged per Aaron (2026-08-31): a joint-environmental adjustment, not a separately interpretable coefficient.
-Species_pool <- read_csv("Data/Farm_species_pool.csv", show_col_types = FALSE) %>%
-  mutate(Id_gcs = as.character(Id_gcs)) %>%
-  select(Id_gcs, pool_wes)
+Species_pool <- read_csv("Derived/Excels/Farm_species_pool.csv", show_col_types = FALSE) %>%
+  mutate(Id_scr = as.character(Id_scr)) %>%
+  select(Id_scr, pool_wes)
 
 # Build the Cmax modelling frame ----
 
 ## One row per [assemblage x response], with predictors, the log-scale response + SE, and the grouping factors
 Model_data <- Tax_div_long %>%
-  semi_join(Farm_level, by = "Id_gcs") %>%
+  semi_join(Farm_level, by = "Id_scr") %>%
   left_join(Assemblage_covs, by = "Assemblage") %>%
   left_join(Canopy_10k, by = "Assemblage") %>%
-  left_join(Species_pool, by = "Id_gcs") %>%
+  left_join(Species_pool, by = "Id_scr") %>%
   left_join(
-    Farm_level %>% select(Id_gcs, Ecoregion, all_of(div_indices),
+    Farm_level %>% select(Id_scr, Ecoregion, all_of(div_indices),
                           Elev_mean, Avg_temp_mean, Tot_prec_mean),
-    by = "Id_gcs"
+    by = "Id_scr"
   ) %>%
   mutate(
-    CollectorXyear = paste(Uniq_db, Ano_grp, sep = "_"),
+    CollectorXyear = paste(Uniq_db, Year_grp, sep = "_"),
     Num_hab_num = as.numeric(as.character(Num.hab)),
     log_response = log(response),
     ## delta-method SE of log(response): SE(log X) ~= SE(X) / X
@@ -163,7 +162,7 @@ Model_data <- Model_data %>%
 
 ## Persist the frame: Scripts/05 maps standardised axes back to raw units; Scripts/04b (Piedemonte cut, spec checks) reuses it
 Model_data %>%
-  select(Assemblage, Id_gcs, Uniq_db, Ano_grp, Season, CollectorXyear, Hill, Ecoregion,
+  select(Assemblage, Id_scr, Uniq_db, Year_grp, Season, CollectorXyear, Hill, Ecoregion,
          response, response_se, log_response, se_log, Num_pc, doy, doy_sin, doy_cos, dist_farm,
          all_of(predictors_to_scale), ends_with("_z")) %>%
   write_csv("Derived/Excels/Farm_mgmt_model_data.csv")
@@ -193,7 +192,7 @@ cmax_fits <- fit_model_grid(
   build_bf = function(row) mgmt_bf(
     "log_response | resp_se(se_log, sigma = TRUE)",
     if (row$index != "baseline") "focal_z" else NULL,
-    c(row$region_fixed, "Num_pc_log_z", "doy_sin", "doy_cos", "(1 | Id_gcs)", "(1 | CollectorXyear)")
+    c(row$region_fixed, "Num_pc_log_z", "doy_sin", "doy_cos", "(1 | Id_scr)", "(1 | CollectorXyear)")
   ),
   build_data = function(row) cmax_frame(row$hill, row$index, row$region_fixed, row$data_subset),
   iter = cmax_iter, warmup = cmax_warmup, adapt_delta = cmax_adapt
@@ -216,13 +215,13 @@ if (!q0_has_se) message("NOTE: q = 0 fitted without measurement error (placehold
 
 ## Predictors + grouping factors from the persisted Cmax frame (Hill-invariant per assemblage), so the incidence coefficients are on the same z-scale as the Cmax ones -- only the response and the dropped Num_pc term differ
 Predictors <- read_csv("Derived/Excels/Farm_mgmt_model_data.csv", show_col_types = FALSE) %>%
-  mutate(Id_gcs = as.character(Id_gcs)) %>%
-  distinct(Assemblage, Id_gcs, Ecoregion, CollectorXyear, dist_farm, doy_sin, doy_cos,
+  mutate(Id_scr = as.character(Id_scr)) %>%
+  distinct(Assemblage, Id_scr, Ecoregion, CollectorXyear, dist_farm, doy_sin, doy_cos,
            Elev_mean_z, Tot_prec_mean_z, canopy_10k_z, pool_wes_z,
            Land_use_div_z, Water_mgmt_div_z, Pasture_mgmt_div_z, All_practices_div_z)
 
-Incidence <- read_csv(latest_file("Derived/Excels", "^Tax_div_incidence_.*\\.csv$"), show_col_types = FALSE) %>%
-  mutate(Id_gcs = as.character(Id_gcs)) %>%
+Incidence <- read_csv(tax_div_path("incidence"), show_col_types = FALSE) %>%
+  mutate(Id_scr = as.character(Id_scr)) %>%
   transmute(Assemblage, Hill,
             response = qD, response_se = qD_se,
             log_response = log(qD), se_log = qD_se / qD)
@@ -255,7 +254,7 @@ inc_fits <- fit_model_grid(
   build_bf = function(row) mgmt_bf(
     "log_response | resp_se(se_log, sigma = TRUE)",
     if (row$index != "baseline") "focal_z" else NULL,
-    c(row$region_fixed, "doy_sin", "doy_cos", "(1 | Id_gcs)", "(1 | CollectorXyear)")
+    c(row$region_fixed, "doy_sin", "doy_cos", "(1 | Id_scr)", "(1 | CollectorXyear)")
   ),
   build_data = function(row) inc_frame(row$hill, row$index, row$region_fixed, row$data_subset),
   iter = inc_iter, warmup = inc_warmup, adapt_delta = inc_adapt
