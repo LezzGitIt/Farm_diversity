@@ -2,7 +2,7 @@
 title: "Does farm management diversification benefit bird diversity?"
 subtitle: "Rationale, approach, and preliminary results"
 date: today
-format:
+format: #docx
   pdf:
     toc: true
     number-sections: true
@@ -61,7 +61,8 @@ It links two datasets produced independently:
   management', and an overall "all practices" composite.
 
 Joined on farm ID, `r n_distinct(md$Id_gcs)` farms have both a diversity
-estimate and at least one diversification index, giving
+estimate and at least one diversification index, and several farms have
+multiple diversity estimates through time, giving
 \~`r nrow(read_csv("Derived/Excels/Farm_mgmt_model_data.csv", show_col_types = FALSE) %>% filter(Hill == "shannon"))`
 assemblages.
 
@@ -82,13 +83,16 @@ environmental conditions.
 - **Land use** and **All practices** are only slightly
   `Ecoregion`-structured (R² \~ 0.08–0.10) — they carry usable
   within-ecoregion variation.
-- **Water management** and **Pasture management** are moderately
+- **Water management** and **Pasture management** are more strongly
   `Ecoregion`-structured (R² \~ 0.34–0.35).
 
 `Ecoregion` is also highly collinear with elevation / temperature (R²
 $= 0.76$) and precipitation (R² $= 0.83$), landscape forest cover (R²
-$= 0.45$), and the endemism index (R² $= 0.52$). The identification
-strategy is to break down the `Ecoregion` category into the underlying
+$= 0.45$), and an endemism index (discussed below; R² $= 0.52$). The
+collinearity between Ecoregion, environment, farm diversification, and
+biodiversity makes it challenging to identify the impact of farm
+diversification $\rightarrow$ biodiversity. The identification strategy
+is to break down the `Ecoregion` category into the underlying
 components, i.e., assess the effect of farm-management diversification
 on bird biodiversity while controlling for temperature, precipitation,
 landscape forest cover, and the regional species pool.
@@ -105,22 +109,12 @@ width="100%"}
 
 # The modelling approach {#sec-modelling}
 
-`Scripts/04a_farm_mgmt_models.R` — I run Bayesian hierarchical
-regression models with one diversification index at a time. The DAG
-shows there are two valid adjustment sets: 1) the 'Ecoregion' model, and
-2) the 'component' model (named because the goal is to decompose
+`Scripts/04a_farm_mgmt_models.R` — Bayesian hierarchical regression
+models with one farm diversification index at a time. The DAG shows
+there are two valid adjustment sets: 1) the 'Ecoregion' model, and 2)
+the 'component' model (named because the goal is to decompose
 `Ecoregion` into its underlying components).
 
-- The **component model** adjusts for the underlying phenomena that
-  `Ecoregion` stands for — temperature, precipitation, landscape forest
-  cover, and the regional endemism index — but not the label itself.
-  This keeps the between-`Ecoregion` variation in each index that is
-  *not* confounded, so it retains the most power to detect an effect. It
-  assumes those terms fully capture regional confounding, although this
-  is not entirely true (e.g., temperature and precipitation are only R²
-  $\approx 0.8$ with `Ecoregion`), so residual confounding may remain
-  (@sec-interpretation). Note that temperature and elevation are
-  correlated at -0.99 so only temperature is included in models.
 - The **`Ecoregion` model** substitutes the five-level factor, which
   additionally absorbs the regional drivers that go unmeasured — the
   deep-time species pool, deforestation legacy, the regional differences
@@ -132,6 +126,16 @@ shows there are two valid adjustment sets: 1) the 'Ecoregion' model, and
   pasture management) will likely attenuate toward zero. This model can
   be thought of as a more conservative estimate of the impact of farm
   management.
+- The **component model** adjusts for the underlying phenomena that
+  `Ecoregion` stands for — temperature, precipitation, landscape forest
+  cover, and the regional endemism index — but not the label itself.
+  This keeps the between-`Ecoregion` variation in each index that is
+  *not* confounded, so it retains the most power to detect an effect. It
+  assumes those terms fully capture regional confounding, although this
+  is not entirely true (e.g., temperature and precipitation are only R²
+  $\approx 0.8$ with `Ecoregion`), so residual confounding may remain
+  (@sec-interpretation). Note that temperature and elevation are
+  correlated at -0.99 so only temperature is included in models.
 
 The 'Ecoregion' specification: **`Ecoregion`** + sampling covariates
 
