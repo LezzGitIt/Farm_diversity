@@ -12,7 +12,7 @@ library(lme4)
 library(MuMIn)
 library(cowplot)
 
-source("Scripts/Shared_fns.R")   # WRANGLING_EXCELS, tax_div_path()
+source("Scripts/Shared_paths.R")   # WRANGLING_EXCELS, tax_div_path()
 ggplot2::theme_set(theme_cowplot())
 
 dir.create("Figures", showWarnings = FALSE)

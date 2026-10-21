@@ -11,7 +11,7 @@
 library(tidyverse)
 library(terra)
 
-source("Scripts/Shared_fns.R")   # WRANGLING_EXCELS, tax_div_path()
+source("Scripts/Shared_paths.R")   # WRANGLING_EXCELS, tax_div_path()
 
 Sys.setenv(GDAL_NUM_THREADS = "ALL_CPUS")
 terraOptions(memfrac = 0.6, progress = 0)

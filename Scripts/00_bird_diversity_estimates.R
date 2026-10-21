@@ -29,7 +29,7 @@ library(iNEXT)
 library(iNEXT.4steps)
 library(cowplot)
 
-source("Scripts/Shared_fns.R")   # WRANGLING_EXCELS, tax_div_path()
+source("Scripts/Shared_paths.R")   # WRANGLING_EXCELS, tax_div_path()
 
 ### `conflicted` not used -- iNEXT / iNEXT.4steps do not mask the dplyr verbs. If a package added later does, qualify the call (dplyr::select, etc.) rather than reaching for conflicted.
 
@@ -52,7 +52,7 @@ min_pc <- 3
 ## ESTIMATE B (abundance) low-coverage cutoff for pass 2
 sc_threshold <- 0.65
 
-## The abundance sensitivity is the slow part (iNEXT4steps x 2 passes, ~1 h). Its logic is unchanged from the previous version of this script, so set FALSE to re-do only the fast incidence estimate; the comparison section then reads the abundance exports pinned by TAX_DIV_VERSION (Shared_fns.R). Set TRUE for a full refresh (new point-count data, or new date stamp for all three), then bump TAX_DIV_VERSION to the new date.
+## The abundance sensitivity is the slow part (iNEXT4steps x 2 passes, ~1 h). Its logic is unchanged from the previous version of this script, so set FALSE to re-do only the fast incidence estimate; the comparison section then reads the abundance exports pinned by TAX_DIV_VERSION (Shared_paths.R). Set TRUE for a full refresh (new point-count data, or new date stamp for all three), then bump TAX_DIV_VERSION to the new date.
 run_abundance_sensitivity <- TRUE
 
 today <- format(Sys.Date(), "%m.%d.%y")

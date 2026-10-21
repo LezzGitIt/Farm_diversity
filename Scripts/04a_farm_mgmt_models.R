@@ -29,7 +29,8 @@
 library(tidyverse)
 library(brms)
 
-source("Scripts/Shared_fns.R")   # MGMT_PRIORS, mgmt_bf(), fit_model_grid(), tidy_model_fits(), focal_fit_summary(), WRANGLING_EXCELS, tax_div_path()
+source("Scripts/Shared_paths.R")   # WRANGLING_EXCELS, tax_div_path()
+source("Scripts/Shared_fns.R")     # MGMT_PRIORS, mgmt_bf(), fit_model_grid(), tidy_model_fits(), focal_fit_summary()
 
 ### `conflicted` is deliberately not loaded: its symbol shims break rstan's Stan-model compilation. This script attaches no package that masks the dplyr verbs.
 

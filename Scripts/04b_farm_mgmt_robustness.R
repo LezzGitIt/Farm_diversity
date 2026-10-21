@@ -13,7 +13,7 @@
 
 ### `pool_blocks` / `spec_checks` / `response_dist` / `ideal_adj` / `endemism_pool` still carry the PRE-2026-08-31 climate block (Num_hab_z, no pool_wes_z; ecoregion has canopy) -- deliberately frozen (Aaron): their conclusions are about the response / RE / pool, not the exact climate parameterisation. `piedemonte` and `spline_env` are on the current spec.
 
-### Shared helpers: Scripts/Shared_fns.R. Reads Scripts/04a's persisted frame Derived/Excels/Farm_mgmt_model_data.csv (+ the incidence export, + Derived/Excels/Farm_species_pool.csv). Run 04a first.
+### Shared helpers: Scripts/Shared_paths.R (input paths) + Scripts/Shared_fns.R (modelling). Reads Scripts/04a's persisted frame Derived/Excels/Farm_mgmt_model_data.csv (+ the incidence export, + Derived/Excels/Farm_species_pool.csv). Run 04a first.
 
 # Setup ----
 library(tidyverse)
@@ -22,7 +22,8 @@ library(cowplot)
 library(loo)
 library(mgcv)
 
-source("Scripts/Shared_fns.R")   # MGMT_PRIORS, mgmt_bf(), fit_model_grid(), tidy_model_fits(), focal_fit_summary(), WRANGLING_EXCELS, tax_div_path()
+source("Scripts/Shared_paths.R")   # WRANGLING_EXCELS, tax_div_path()
+source("Scripts/Shared_fns.R")     # MGMT_PRIORS, mgmt_bf(), fit_model_grid(), tidy_model_fits(), focal_fit_summary()
 
 ### `conflicted` deliberately not loaded -- its shims break rstan's Stan-model compilation (see Scripts/04a).
 
