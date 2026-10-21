@@ -482,7 +482,7 @@ inconclusive.
   'Ecoregion' and 'component' models.
 - **The bimodal response distribution** — the posterior predictive
   checks (@sec-model-checks) reveal a secondary mode at \~8–16 effective
-  species (likely the Boyacá-Santander highlands, perhaps also
+  species (likely the Cordillera Oriental highlands, perhaps also
   influenced by the early forest-only / single-visit CIPAV surveys) that
   the Gaussian model does not reproduce. It does not bias the farm
   diversification coefficient, but indicates a minor model
@@ -639,8 +639,8 @@ analysis.](/Figures/Farm_mgmt_ppcheck.png){#fig-ppcheck width="100%"}
 The observed densities are **bimodal** for richness and Shannon — a main
 mode near 30 effective species and a secondary mode near 8–16 — and the
 Gaussian model reproduces only the main one. The secondary mode is about
-15 assemblages: roughly half are the **Boyacá-Santander highlands**
-(Eastern cordillera, genuinely species-poor — a median of 12 effective
+15 assemblages: roughly half are the **Cordillera Oriental highlands**
+(Eastern cordillera, formerly labelled Boyacá-Santander; genuinely species-poor — a median of 12 effective
 species against 27–35 in every other ecoregion), and most of the rest
 are the **early forest-only (GAICA 2013/2014) and single-visit surveys**
 (CIPAV 2016–17). That cluster also carries about twice the iNEXT
