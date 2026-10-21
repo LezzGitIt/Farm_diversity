@@ -37,6 +37,20 @@ index_lab <- c(baseline = "(baseline)", Land_use_div = "Land use", Water_mgmt_di
 md <- read_csv("Derived/Excels/Farm_mgmt_model_data.csv", show_col_types = FALSE) %>% distinct(Id_scr, .keep_all = TRUE)
 idx_prec_r <- map_dbl(names(index_lab)[-1], ~ cor(md[[.x]], md$Tot_prec_mean, use = "pairwise")) %>%
   set_names(names(index_lab)[-1])
+
+## Assemblages each diversity estimate drops (Scripts/00 exports): incidence drops < 3 point counts, the coverage-based q = 0 drops sample coverage < 0.65
+source("Scripts/Shared_paths.R")
+asm_all <- unique(read_csv(tax_div_path("all_farms"), show_col_types = FALSE)$Assemblage)
+asm_drop_inc <- setdiff(asm_all, read_csv(tax_div_path("incidence"), show_col_types = FALSE)$Assemblage)
+asm_drop_cov <- setdiff(asm_all, read_csv(tax_div_path("coverage65"), show_col_types = FALSE)$Assemblage)
+
+## Model sample sizes (primary subset) per response, as "min–max" across fits
+n_range <- function(path) {
+  n <- read_csv(path, show_col_types = FALSE) %>% filter(data_subset == "primary") %>% pull(n_obs)
+  paste0(min(n), "–", max(n))
+}
+n_inc  <- n_range("Derived/Excels/Incidence_response_summaries.csv")
+n_cmax <- n_range("Derived/Excels/Farm_mgmt_model_summaries.csv")
 ```
 
 Source code and data-processing pipeline:
@@ -327,9 +341,14 @@ point-count-standardised estimate.
     species-rich assemblage is further from its asymptote at 6 point
     counts than a species-poor one; the incidence estimate therefore
     compresses the high-diversity end relative to the coverage-based
-    estimate (@fig-inc-vs-cmax). $\approx 10$ assemblages with \< 3
-    point counts are dropped (the incidence set runs on n = 71–89
-    whereas the abundance coverage-standardised set runs on 73–98).
+    estimate (@fig-inc-vs-cmax). `r length(asm_drop_inc)` of the
+    `r length(asm_all)` assemblages have \< 3 point counts and are
+    dropped. The coverage-based richness (q = 0) estimate drops its own
+    `r length(asm_drop_cov)` (sample coverage \< 0.65), only
+    `r length(intersect(asm_drop_inc, asm_drop_cov))` of them shared, so
+    the two responses are fit to overlapping but different sets of
+    assemblages (the incidence models run on n = `r n_inc` whereas the
+    abundance coverage-standardised models run on n = `r n_cmax`).
 
 Neither is clean — each trades one confound for the other — which is why
 both are reported. The two estimates against each other
