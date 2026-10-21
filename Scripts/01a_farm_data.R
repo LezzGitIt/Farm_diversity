@@ -9,7 +9,7 @@ library(tidyverse)
 library(readxl)
 library(janitor)
 
-source("Scripts/Model_fns.R")   # WRANGLING_EXCELS, tax_div_path()
+source("Scripts/Shared_fns.R")   # WRANGLING_EXCELS, tax_div_path()
 
 # ==================================================================== #
 # 1. Farm-level environmental covariates                                #
@@ -56,7 +56,7 @@ sheet_or <- function(preferred, fallback) if (preferred %in% excel_sheets(farm_d
 Farm_div_raw <- read_excel(farm_div_xls, sheet = sheet_or("Data", "Sheet1"))
 Farm_div_labels <- read_excel(farm_div_xls, sheet = sheet_or("Dictionary", "Sheet2"))
 
-### Bird taxonomic-diversity Hill-number estimates per farm (Scripts/00; the export pinned by TAX_DIV_VERSION in Model_fns.R)
+### Bird taxonomic-diversity Hill-number estimates per farm (Scripts/00; the export pinned by TAX_DIV_VERSION in Shared_fns.R)
 Tax_div_all_farms <- read_csv(tax_div_path("all_farms"), show_col_types = FALSE)
 Tax_div_coverage65 <- read_csv(tax_div_path("coverage65"), show_col_types = FALSE)
 

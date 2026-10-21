@@ -1,6 +1,6 @@
 # Causal DAG for the bird-diversity ~ farm-management-diversification analysis ----
 
-### Reference artifact, not a pipeline stage (like Scripts/Model_fns.R). It encodes the assumed causal structure behind Scripts/04a_farm_mgmt_models.R (Aaron's hand-drawn DAG, 2026-08-28; simplified 2026-08-31), derives the adjustment set the model should target, checks the implied independencies against the data, and maps the 04 specs onto it. Consult before trusting a 04 coefficient. Produces Figures/DAG.png and Derived/Excels/DAG_adjustment_sets.csv.
+### Reference artifact, not a pipeline stage (like Scripts/Shared_fns.R). It encodes the assumed causal structure behind Scripts/04a_farm_mgmt_models.R (Aaron's hand-drawn DAG, 2026-08-28; simplified 2026-08-31), derives the adjustment set the model should target, checks the implied independencies against the data, and maps the 04 specs onto it. Consult before trusting a 04 coefficient. Produces Figures/DAG.png and Derived/Excels/DAG_adjustment_sets.csv.
 
 # Setup ----
 

@@ -15,7 +15,7 @@
 
 ### PRIMARY analysis = assemblages whose point counts average < 300 m from the farm (`dist_threshold`); the full set is refit as a distance-cutoff sensitivity for the index models, both responses.
 
-### Shared helpers (priors, formula builder, compile-sharing grid fitter, tidiers) are in Scripts/Model_fns.R.
+### Shared helpers (priors, formula builder, compile-sharing grid fitter, tidiers) are in Scripts/Shared_fns.R.
 
 ### OUTPUTS
 ###   Derived/Excels/Farm_mgmt_model_data.csv        -- the persisted Cmax modelling frame (raw + z-scored); reused by Scripts/04b and Scripts/05
@@ -29,7 +29,7 @@
 library(tidyverse)
 library(brms)
 
-source("Scripts/Model_fns.R")   # MGMT_PRIORS, mgmt_bf(), fit_model_grid(), tidy_model_fits(), focal_fit_summary(), WRANGLING_EXCELS, tax_div_path()
+source("Scripts/Shared_fns.R")   # MGMT_PRIORS, mgmt_bf(), fit_model_grid(), tidy_model_fits(), focal_fit_summary(), WRANGLING_EXCELS, tax_div_path()
 
 ### `conflicted` is deliberately not loaded: its symbol shims break rstan's Stan-model compilation. This script attaches no package that masks the dplyr verbs.
 

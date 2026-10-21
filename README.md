@@ -14,7 +14,7 @@ All code lives in `Scripts/`.
 
 **Shared**
 
-- `Model_fns.R` — Shared helpers: input paths (the data-paper folder, and which dated diversity-estimate file the downstream scripts read) + the brms model machinery
+- `Shared_fns.R` — Shared helpers: input paths (the data-paper folder, and which dated diversity-estimate file the downstream scripts read) + the brms model machinery
 - `dag.R` — Assumed causal DAG behind the models → `Figures/DAG.png`
 
 **Data prep and exploration**
@@ -41,7 +41,7 @@ All code lives in `Scripts/`.
 
 ## Running the analysis
 
-Scripts use paths relative to the project root and are numbered in run order. The bird point-count tables are read from the sibling data-paper repo (`../Ssp-bird-data-wrangling/Derived/Excels/`, English column names; set `WRANGLING_EXCELS` in `Scripts/Model_fns.R`). Every script downstream of `00` reads the diversity export whose date stamp is pinned by `TAX_DIV_VERSION` in `Model_fns.R` -- after re-running `00`, update that value deliberately (re-running `00` alone does not change what the models see).
+Scripts use paths relative to the project root and are numbered in run order. The bird point-count tables are read from the sibling data-paper repo (`../Ssp-bird-data-wrangling/Derived/Excels/`, English column names; set `WRANGLING_EXCELS` in `Scripts/Shared_fns.R`). Every script downstream of `00` reads the diversity export whose date stamp is pinned by `TAX_DIV_VERSION` in `Shared_fns.R` -- after re-running `00`, update that value deliberately (re-running `00` alone does not change what the models see).
 
 ``` r
 source("Scripts/00_bird_diversity_estimates.R")   # slow (~1 h); re-run only when the point-count data changes
