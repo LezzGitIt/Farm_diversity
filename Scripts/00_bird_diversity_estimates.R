@@ -1,27 +1,14 @@
 # Bird taxonomic-diversity (Hill number) estimates per assemblage ----
 
-### An assemblage = [data collector . farm . year-group . season]. This script produces TWO diversity estimates per assemblage, from the same point-count data:
+### An assemblage = [data collector . farm . year-group . season]. Two diversity estimates per assemblage from the same point-count data; methods detail and caveats for the write-up are in Project_notes.md ("For the paper -- methods & discussion points").
+## ESTIMATE A -- point-count-standardised (iNEXT incidence): diversity at m* = 6 point counts; assemblages with < 3 point counts dropped.
+## ESTIMATE B -- abundance, coverage-standardised (iNEXT 4-steps): asymptotic q = 1 / 2, and q = 0 at Cmax with assemblages of coverage < 0.65 dropped. The slow part (~1 h); set `run_abundance_sensitivity` = FALSE to skip it.
 
-### ESTIMATE A -- point-count-standardised (iNEXT incidence). Treated as equal evidence to Estimate B, not primary/sensitivity (Aaron 2026-08-31); one goes in the main text, one in the supplement.
-###   Sampling unit = a point-count LOCATION (`Id_survey`); a species is scored present (1) if it was detected there on any visit. Diversity (Hill q = 0/1/2) is then rarefied / extrapolated to a common NUMBER OF POINT COUNTS, m* (`estimateD(base = "size", level = m*)`), i.e. "expected diversity if this assemblage had been surveyed with m* point counts". This standardises SPATIAL survey effort directly, so the estimate carries essentially no `Num_pc` signal (effort R^2 ~ 0.02 vs ~0.34 for the coverage-based richness) and Scripts/04a does not need `Num_pc` as a covariate. m* = 6: iNEXT's own `min(2 x reference size)` rule once assemblages with < `min_pc` = 3 point counts are dropped (keeps ~102 of 112), and also the median effort.
-###   CAVEATS (carry these into any write-up):
-###     * INCIDENCE needs 0/1 cell values -- so with the LOCATION as the sampling unit, repeat visits are POOLED to presence/absence: a species detected once and one detected on every visit both score 1. Within-point-count and within-visit abundance is discarded, so q = 1 / q = 2 are INCIDENCE-based Hill numbers (built from among-point-count occupancy frequencies), not abundance-weighted diversity. (Pooling is a consequence of the unit choice, not a requirement of incidence -- visit-as-unit keeps visit-level info, see next caveat.)
-###     * ALL POINT COUNTS ARE TREATED AS EQUIVALENT UNITS regardless of protocol. The 6 datasets differ in point-count DURATION (CIPAV / Gaica-mbd variable, up to 90 min; the rest 10 min), RADIUS (25 vs 50 m), and NUMBER OF VISITS (CIPAV 1; the rest 3-5). Standardising the NUMBER of point counts does not standardise the effort PER point count -- a longer / wider / more-revisited count detects more species, so its incidence column is fuller and the assemblage reads higher. Choosing the visit as the unit would let iNEXT's incidence model use detection frequency, but then the incidence sample size = locations x visits, which is not comparable across the single-visit vs multi-visit datasets. Between-dataset protocol differences are therefore left to `(1 | CollectorXyear)` in Scripts/04a, NOT removed at estimation. (The abundance / Cmax estimate handles per-count duration/radius somewhat better -- individuals / coverage is a finer effort currency than "number of counts" -- but leaves the number-of-counts residual. Each approach trades one confound for another; hence report both.)
-###     * NO coverage standardisation. Assemblages are equalised on effort (6 point counts), not on completeness -- sample coverage at m* is ~0.78 median (0.36-0.99). A species-rich assemblage sits further from its asymptote at 6 point counts, so the estimate partly reflects detectability / density, and it reads LOWER for richly-sampled farms than the near-asymptotic coverage-based estimate.
-###     * ~10 assemblages with < 3 point counts are dropped (the coverage-based export keeps them, with wide CIs). ~1/3 of the rest (3-5 point counts) are extrapolated to 6 -- within the 2x limit, but model-dependent.
-###     * m* is a researcher choice. Lower m* keeps more assemblages but sits further from the asymptote.
-
-### ESTIMATE B -- abundance, coverage-standardised (the original approach; Chao et al. 2020 iNEXT 4-steps).
-###   For each assemblage the raw point-count counts are POOLED across days, repeat surveys and point counts into one species-by-assemblage abundance vector, then iNEXT4steps gives asymptotic (q = 1, 2) and coverage-standardised non-asymptotic (q = 0, at Cmax) diversity with bootstrap uncertainty. Uses all the data and equalises completeness, but is blind to spatial vs temporal replication (pooling loses it) and leaves a `Num_pc` signal in the estimate. Two passes: all assemblages, then the low-coverage ones dropped (removal set taken from pass 1's own SC_obs).
-###   This section is the slow part (~1 h). Its logic is UNCHANGED from the previous version of this script (only moved / relabelled). Set `run_abundance_sensitivity` = FALSE to re-do only the fast incidence estimate.
-
-### EXPORTS (one row per [assemblage x Order.q], keyed by `Assemblage` + the row_id parts):
-###   Derived/Excels/Tax_div_incidence_<date>.csv    -- ESTIMATE A. qD + CI + delta-method SE, coverage at m*, interp/extrap flag, Num_pc, Num.hab.
-###   Derived/Excels/Tax_div_all_farms_<date>.csv     -- ESTIMATE B. asymptotic q = 1 / q = 2 (`TD_asy`, `s.e.`) + observed / SC / evenness.
-###   Derived/Excels/Tax_div_coverage65_<date>.csv    -- ESTIMATE B. non-asymptotic q = 0 at Cmax (`No_Asy_TD`) + coverage-based SE, low-coverage assemblages removed.
-###   Figures/Incidence_vs_iNEXT.png                  -- the two estimates against each other + their residual dependence on Num_pc.
-
-### Reference write-up (Cmax rationale, the iNEXT 4-steps framework, sample-completeness / rarefaction plots): Scripts/qmd/_archive/02_Analysis_iNEXT.qmd.
+### EXPORTS (one row per [assemblage x Order.q]) -> Derived/Excels/:
+## Tax_div_incidence_<date>.csv -- Estimate A
+## Tax_div_all_farms_<date>.csv -- Estimate B, all assemblages (q = 1 / 2 used downstream)
+## Tax_div_coverage65_<date>.csv -- Estimate B, low-coverage assemblages removed (q = 0 used downstream)
+## Figures/Incidence_vs_iNEXT.png -- the two estimates against each other + their residual dependence on Num_pc
 
 # Setup ----
 library(tidyverse)
@@ -88,9 +75,7 @@ num_hab <- Event_covs2 %>%
   distinct(Identifier, Id_survey, Habitat) %>%
   summarize(Num.hab = as.factor(n_distinct(Habitat)), .by = Identifier)
 
-# ============================================================================
 # ESTIMATE A: point-count-standardised diversity (iNEXT incidence) ----
-# ============================================================================
 
 ## [assemblage x point count x species] -- detections summed across repeat visits, then binarised
 Pc_species <- Bird_pcs_linked %>%
@@ -143,9 +128,7 @@ write_csv(Tax_div_incidence, sprintf("Derived/Excels/Tax_div_incidence_%s.csv", 
 cat("Wrote Tax_div_incidence_", today, ".csv: ",
     n_distinct(Tax_div_incidence$Assemblage), " assemblages.\n", sep = "")
 
-# ============================================================================
 # ESTIMATE B: abundance diversity, coverage-standardised (iNEXT 4-steps) ----
-# ============================================================================
 
 ## Skipped when run_abundance_sensitivity = FALSE -- the comparison section then reads the pinned (TAX_DIV_VERSION) Tax_div_all_farms / _coverage65 exports.
 if (run_abundance_sensitivity) {
@@ -252,9 +235,7 @@ cat("Wrote Tax_div_coverage65_", today, ".csv: ",
 
 }   # end if (run_abundance_sensitivity)
 
-# ============================================================================
-# Compare the primary (incidence) and sensitivity (Cmax) estimates ----
-# ============================================================================
+# Compare incidence and Cmax estimates ----
 
 ## The current-pipeline (abundance) value for each Hill: q = 0 non-asymptotic at Cmax, q = 1 / 2 asymptotic. From the passes just run, else from the pinned exports on disk.
 if (!run_abundance_sensitivity) {

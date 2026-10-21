@@ -11,9 +11,7 @@ library(janitor)
 
 source("Scripts/Shared_paths.R")   # WRANGLING_EXCELS, tax_div_path()
 
-# ==================================================================== #
-# 1. Farm-level environmental covariates                                #
-# ==================================================================== #
+# 1. Farm-level environmental covariates ----
 
 ### `Site_covs.csv` is one row per point count (`Id_survey_no_dc`, 504 rows across 73 farms). `Avg_temp` (mean annual temp, C) and `Tot_prec` (total annual precip, mm) are climate normals at each point-count location; `Elev` is 90 m-resolution elevation (m). Farm-level averaging is safe: climate / elevation barely vary among a farm's point counts (median within-farm SD ~0.02 C, ~16 mm, ~7 m).
 Site_covs <- read_csv(file.path(WRANGLING_EXCELS, "Site_covs.csv"), show_col_types = FALSE) %>%
@@ -44,11 +42,9 @@ write_csv(Farm_covariates, "Derived/Excels/Farm_covariates.csv")
 cat("Wrote Derived/Excels/Farm_covariates.csv:", nrow(Farm_covariates), "farms,",
     sum(Farm_covariates$N_point_counts), "point counts.\n")
 
-# ==================================================================== #
-# 2. Match the management diversification indices to the diversity data #
-# ==================================================================== #
+# 2. Match the management diversification indices to the diversity data ----
 
-# Load data ----
+## Load data ----
 
 farm_div_xls <- "Data/Complementary_Biodiversity_Paper_Birds_MJE_June_2026.xls"
 ## The provider renamed the sheets Sheet1 -> "Data" and Sheet2 -> "Dictionary"; accept either
@@ -60,7 +56,7 @@ Farm_div_labels <- read_excel(farm_div_xls, sheet = sheet_or("Dictionary", "Shee
 Tax_div_all_farms <- read_csv(tax_div_path("all_farms"), show_col_types = FALSE)
 Tax_div_coverage65 <- read_csv(tax_div_path("coverage65"), show_col_types = FALSE)
 
-# Clean the farm diversification data ----
+## Clean the farm diversification data ----
 
 ## Rename indices to plain-English names; coerce the farm ID to character to match Id_scr
 Farm_div <- Farm_div_raw %>%
@@ -74,7 +70,7 @@ Farm_div <- Farm_div_raw %>%
   mutate(Id_scr = as.character(Id_scr)) %>%
   clean_names(case = "none")
 
-# Match to biodiversity estimates ----
+## Match to biodiversity estimates ----
 
 ## A farm "has a biodiversity estimate" if it appears in Tax_div_all_farms (the more complete of the two exports)
 Farm_div_matched <- Farm_div %>% semi_join(Tax_div_all_farms, by = "Id_scr")
@@ -89,7 +85,7 @@ Bio_farms_unmatched <- Tax_div_all_farms %>%
   arrange(Id_scr)
 cat(n_distinct(Bio_farms_unmatched$Id_scr), "farms have a bird estimate but no diversification-index row.\n")
 
-# Attach a farm-level biodiversity summary (context for later exploration) ----
+## Attach a farm-level biodiversity summary (context for later exploration) ----
 
 Farm_richness <- Tax_div_coverage65 %>%
   filter(Order.q == 0) %>%
@@ -119,7 +115,7 @@ Farm_div_matched <- Farm_div_matched %>%
 
 stopifnot(sum(is.na(Farm_div_matched$Ecoregion)) == 0)
 
-# Export ----
+## Export ----
 
 dir.create("Derived/Excels", recursive = TRUE, showWarnings = FALSE)
 write_csv(Farm_div_matched, "Derived/Excels/Farm_diversity_matched.csv")

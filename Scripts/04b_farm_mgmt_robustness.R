@@ -61,9 +61,7 @@ index_lab <- c(Land_use_div = "Land use", Water_mgmt_div = "Water mgmt",
 hill_lab  <- c(richness = "Richness (q = 0)", shannon = "Shannon (q = 1)", simpson = "Simpson (q = 2)")
 
 
-# ================================================================== #
-# Section: piedemonte  (was Scripts/04c)                              #
-# ================================================================== #
+# Section: piedemonte ----
 ### Restricting to Piedemonte holds the regional species pool ~ constant. WITHIN Piedemonte elevation / precipitation / canopy are r ~ 0.91-0.94 collinear -> replaced by env_pc1 (PC1 of the three, ~95% of their joint variance). No "ecoregion" version (region is fixed). Predictors re-standardised WITHIN Piedemonte. Two responses (Cmax with Num_pc, incidence without). Feeds Scripts/05 (p_pied_effects) for the Farm_mgmt_summary. (The drop-CollectorXyear-RE arm was removed 2026-09-02 along with Piedemonte_report.qmd -- the RE is a DAG-required / non-independence term, not a swappable choice.)
 
 if ("piedemonte" %in% run_sections) {
@@ -159,9 +157,7 @@ if ("piedemonte" %in% run_sections) {
 }
 
 
-# ================================================================== #
-# Section: pool_blocks  (was Scripts/04d)                             #
-# ================================================================== #
+# Section: pool_blocks ----
 ### Does the range-map species-pool count (pool_point, Scripts/01b) earn a place in 04a? pool_point ~ poly(Elev,2)+poly(precip,2) R^2 = 0.86, so fit FOUR env-adjustment blocks that never put all three axes together and check the focal coefficient + fit. Then a precipitation functional-form sub-check (quadratic vs spline, with / without elevation). Outcome: pool does not move the management coefficient; the pasture/water lean is residual precipitation confounding.
 
 if ("pool_blocks" %in% run_sections) {
@@ -252,7 +248,7 @@ if ("pool_blocks" %in% run_sections) {
     arrange(index, hill, factor(block, levels = precip_lab))
   write_csv(pflex, "Derived/Excels/Precip_vs_elev_sensitivity.csv")
 
-  # figures (was Scripts/05d) ----
+  ## pool_blocks figures ----
 
   ## Fig 1: the pasture / water coefficient across every environmental spec, ordered by how completely precipitation is controlled
   pb_spec_lab <- c(pool_elev = "species pool + elev²", clim = "elev² + precip²",
@@ -332,9 +328,7 @@ if ("pool_blocks" %in% run_sections) {
 }
 
 
-# ================================================================== #
-# Section: spec_checks  (was Scripts/04e)                             #
-# ================================================================== #
+# Section: spec_checks ----
 ### (a) drop resp_se() -- how much does the measurement-error weighting matter? (b) response scale / likelihood family (Gaussian log/raw/sqrt, Student-t log) as a % change in diversity per +1 SD. Outcome: focal coefficient robust to both. (The "drop (1 | CollectorXyear)" variant was removed 2026-09-02 here and in the piedemonte section -- Aaron: the RE is a DAG-required / non-independence term, not a swappable choice; testing its removal fits a misspecified model.)
 
 if ("spec_checks" %in% run_sections) {
@@ -453,9 +447,7 @@ if ("spec_checks" %in% run_sections) {
 }
 
 
-# ================================================================== #
-# Section: response_dist  (was Scripts/04f)                           #
-# ================================================================== #
+# Section: response_dist ----
 ### Which response distribution fits the iNEXT estimates best? Gaussian on {log, raw, sqrt} + Student-t on {log, raw}, all with resp_se(sigma = TRUE), on the baseline + All-practices models, q = 0/1/2, both adjustments. Evaluated by LOO on a common raw-y scale, posterior-predictive shape statistics, and how the bootstrap SE scales with the estimate. Outcome: SE ~ sqrt(estimate), so sqrt fits best; the focal effect is invariant; log kept for interpretability + positivity.
 
 if ("response_dist" %in% run_sections) {
@@ -664,9 +656,7 @@ if ("response_dist" %in% run_sections) {
 }
 
 
-# ================================================================== #
-# Section: ideal_adj  (was Scripts/04h)                               #
-# ================================================================== #
+# Section: ideal_adj ----
 ### The DAG-ideal adjustment: focal + elev + elev^2 + precip + precip^2 + pool_point + canopy + sampling + REs -- all three collinear environmental axes at once (04d deliberately avoided this). Run it anyway + assess the collinearity properly (predictor VIF, joint posterior correlations, focal stability vs the 04a specs, prior sensitivity). Outcome: environmental block badly collinear, but the management coefficient (VIF ~ 1.5) is clean and prior-stable.
 
 if ("ideal_adj" %in% run_sections) {
@@ -806,9 +796,7 @@ if ("ideal_adj" %in% run_sections) {
 }
 
 
-# ================================================================== #
-# Section: endemism_pool  (was Scripts/04i)                           #
-# ================================================================== #
+# Section: endemism_pool ----
 ### Swap the raw pool count for the range-rarity-weighted pool_cwe (log then z-scored) in three specs that vary whether it competes with the climate axes. Reports the management coefficient, the pool coefficient + its sign, fit, collinearity. Outcome: no change to the management conclusion; on the log scale pool_cwe is r ~ 0.85 with elevation -- a collinear substitute, not a new axis.
 
 if ("endemism_pool" %in% run_sections) {
@@ -923,9 +911,7 @@ if ("endemism_pool" %in% run_sections) {
 }
 
 
-# ================================================================== #
-# Section: spline_env  (was Scripts/04j)                              #
-# ================================================================== #
+# Section: spline_env ----
 ### Replace the elevation / precipitation quadratics in the primary `climate` spec with rigid k = 4 penalized splines (both responses, baseline + 4 indices, primary subset). Compare quadratic vs spline by focal coefficient, LOO, bayes_R2, PPC, fitted env shapes, and mgcv edf. Outcome: no substantive change; LOO / bayes_R2 mildly favour the quadratic -- no evidence it is too restrictive.
 
 if ("spline_env" %in% run_sections) {

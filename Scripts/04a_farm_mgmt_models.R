@@ -72,11 +72,9 @@ grid_for <- function(key_prefix) {
            structure = paste(spec, if_else(index == "baseline", "baseline", "index"), sep = "__"))
 }
 
-# ==================================================================== #
-# Cmax arm (abundance, coverage-standardised)                           #
-# ==================================================================== #
+# Cmax arm (abundance, coverage-standardised) ----
 
-# Load data ----
+## Load data ----
 
 ## Farm-level table: the four diversification indices, ecoregion, farm climate covariates; farms with a bird biodiversity estimate (Scripts/01a_farm_data.R)
 Farm_level <- read_csv("Derived/Excels/Farm_diversity_matched.csv", show_col_types = FALSE) %>%
@@ -129,7 +127,7 @@ Species_pool <- read_csv("Derived/Excels/Farm_species_pool.csv", show_col_types 
   mutate(Id_scr = as.character(Id_scr)) %>%
   select(Id_scr, pool_wes)
 
-# Build the Cmax modelling frame ----
+## Build the Cmax modelling frame ----
 
 ## One row per [assemblage x response], with predictors, the log-scale response + SE, and the grouping factors
 Model_data <- Tax_div_long %>%
@@ -168,7 +166,7 @@ Model_data %>%
          all_of(predictors_to_scale), ends_with("_z")) %>%
   write_csv("Derived/Excels/Farm_mgmt_model_data.csv")
 
-# Fit the Cmax grid ----
+## Fit the Cmax grid ----
 
 ## The focal index is carried in a generic column `focal_z`; index == "baseline" drops it. Row filters and the fixed term order below are held stable so unchanged fits reuse their cached `.rds`.
 cmax_frame <- function(hill, index, region_fixed, data_subset) {
@@ -208,11 +206,9 @@ Model_summaries <- tidy_model_fits(cmax_fits, cmax_grid) %>%
 write_csv(Model_summaries, "Derived/Excels/Farm_mgmt_model_summaries.csv")
 if (!q0_has_se) message("NOTE: q = 0 fitted without measurement error (placeholder SE). Re-run after Scripts/00.")
 
-# ==================================================================== #
-# Incidence arm (point-count-standardised, m* = 6, no Num_pc)           #
-# ==================================================================== #
+# Incidence arm (point-count-standardised, m* = 6, no Num_pc) ----
 
-# Load the incidence response + reuse the Cmax predictors ----
+## Load the incidence response + reuse the Cmax predictors ----
 
 ## Predictors + grouping factors from the persisted Cmax frame (Hill-invariant per assemblage), so the incidence coefficients are on the same z-scale as the Cmax ones -- only the response and the dropped Num_pc term differ
 Predictors <- read_csv("Derived/Excels/Farm_mgmt_model_data.csv", show_col_types = FALSE) %>%
@@ -231,7 +227,7 @@ Inc_data <- Incidence %>%
   inner_join(Predictors, by = "Assemblage") %>%
   filter(is.finite(se_log), se_log > 0)
 
-# Fit the incidence grid ----
+## Fit the incidence grid ----
 
 ## No Num_pc term -- effort is already standardised in the response
 inc_frame <- function(hill, index, region_fixed, data_subset) {
@@ -269,9 +265,7 @@ Inc_summaries <- focal_fit_summary(inc_fits, inc_grid) %>%
 
 write_csv(Inc_summaries, "Derived/Excels/Incidence_response_summaries.csv")
 
-# ==================================================================== #
-# Compare the two responses                                            #
-# ==================================================================== #
+# Compare the two responses ----
 
 Abund_focal <- Model_summaries %>%
   filter(term == "focal_z", data_subset == "primary") %>%
@@ -291,9 +285,7 @@ write_csv(Comparison, "Derived/Excels/Incidence_response_comparison.csv")
 
 ### The figures built from these tables -- the Cmax-vs-incidence forest plot and the distance-cutoff sensitivity -- are in Scripts/05_farm_mgmt_plots.R (every management figure lives there).
 
-# ==================================================================== #
-# Report                                                               #
-# ==================================================================== #
+# Report ----
 
 cat("\n== Cmax arm: bayes_R2, baseline vs + each index (primary, dist < ", dist_threshold, " m) ==\n", sep = "")
 Model_summaries %>%
