@@ -7,7 +7,7 @@
 # Output: Snapped landcovers file
 
 # Instructions
-# Go to 'Which shapefile?' section and set tbl_row <- # 1 = middle, 2 = past, 3 = ubc. This determines which file is processed & ultimately exported 
+# Go to 'Which shapefile?' section and set Lc_period to middle, past, or ubc. This determines which file is processed & ultimately exported 
 
 # Script contents ---------------------------------------------------------
 # 1) Load libraries and data
@@ -52,16 +52,15 @@ Pc_locs_dc <- Pc_locs_dc %>% filter(Id_group != "UBC-MB-VC-EH")
 
 # Which shapefile?  -------------------------------------------------------
 # This determines which file is processed & ultimately exported 
-tbl_row <- 3 # 1 = middle, 2 = past, 3 = ubc
+Lc_period <- "ubc" # middle, past, ubc
 
-# Create Index_tbl
+# Data collectors whose point counts each landcover period covers (middle = every collector except Ubc mbd)
 Uniq_db <- Event_covs_pcs %>% 
   pull(Uniq_db) %>% 
   unique()
-Index_tbl <- tibble(
+Period_tbl <- tibble(
   name = c("middle", "past", "ubc"), 
-  index = c(2,3,4), 
-  data_collector = list(Uniq_db[c(1:4,6)], c("Gaica mbd", "Cipav mbd"), "Ubc mbd")
+  data_collector = list(setdiff(Uniq_db, "Ubc mbd"), c("Gaica mbd", "Cipav mbd"), "Ubc mbd")
   )
 
 # Bring in data -----------------------------------------------------------
@@ -78,8 +77,14 @@ shp.lc.L <- map(.x = files.shp2, \(shp)
 files.shp3 <- str_remove(files.shp2, ".gpkg")
 names(shp.lc.L) <- files.shp3
 
+# Layers are selected by name, not position, so adding a file to the folder (e.g. landcovers_el_hatico_final) cannot shift them
+Lc_name <- paste0("Lc_", Lc_period, "_final") # landcover polygons for this period
+Linear_name <- paste0("linear_", Lc_period, "_final") # live fences for this period
+Linear_names <- paste0("linear_", c("middle", "past", "ubc"), "_final")
+
 # Formatting LC dataframes
-shp.lc.L[c(2:5)] <- map(shp.lc.L[c(2:5)], \(polys){
+Poly_names <- str_subset(names(shp.lc.L), "^Lc_|el_hatico")
+shp.lc.L[Poly_names] <- map(shp.lc.L[Poly_names], \(polys){
   polys_df <- polys %>% mutate(
     #poly_num = row_number(),
     image_date = as.Date(image_date),
@@ -92,26 +97,27 @@ shp.lc.L$landcovers_el_hatico_final %>% pull(image_date) %>% unique()
 
 # Visualize El Hatico
 ggplot() + geom_spatvector(data = shp.lc.L$landcovers_el_hatico_final) + 
-  geom_spatvector(data = shp.lc.L[[1]]) + # Individual trees
-  geom_spatvector(data = shp.lc.L[[tbl_row + 1 + 3]])
+  geom_spatvector(data = shp.lc.L$individual_trees_final) + # Individual trees
+  geom_spatvector(data = shp.lc.L[[Linear_name]])
 
 # Subset individual trees -------------------------------------------------
 ## The individual trees file was not differentiated by the data collection year, given that individual trees left in pasture did not change much over the project. 
 # Thus, our objective is to subset the individual trees to only the relevant IDs if we are working with UBC or past shapefiles
-if((tbl_row + 1) %in% c(3,4)){
-  shp.lc.L[[1]] <- terra::intersect(shp.lc.L[[tbl_row + 1]], shp.lc.L[[1]])
+if(Lc_period %in% c("past", "ubc")){
+  shp.lc.L$individual_trees_final <- terra::intersect(shp.lc.L[[Lc_name]], shp.lc.L$individual_trees_final)
 }
 
 # Visualize 
-ggplot() + geom_spatvector(data = shp.lc.L[[tbl_row + 1]]) + 
-  geom_spatvector(data = shp.lc.L[[1]]) + # Individual trees
-  geom_spatvector(data = shp.lc.L[[tbl_row + 1 + 3]]) # Live fences
+ggplot() + geom_spatvector(data = shp.lc.L[[Lc_name]]) + 
+  geom_spatvector(data = shp.lc.L$individual_trees_final) + # Individual trees
+  geom_spatvector(data = shp.lc.L[[Linear_name]]) # Live fences
 
 # Buffer -----------------------------------------------------------------
 ## Format linear features & individual trees
 # Add LC
-shp.lc.L[c(1, 5:7)] <- map2(
-  shp.lc.L[c(1, 5:7)], c("distrees", rep("livefence", 3)),
+Trees_lf_names <- c("individual_trees_final", Linear_names)
+shp.lc.L[Trees_lf_names] <- map2(
+  shp.lc.L[Trees_lf_names], c("distrees", rep("livefence", 3)),
   \(lc, lc_type){
     lc %>% mutate(lc_typ = lc_type)
   }
@@ -121,7 +127,7 @@ shp.lc.L[c(1, 5:7)] <- map2(
 # Discuss buffers with Mathilde - "S" for shrub should be 2m radius (NOT diameter), "T" should be 5m wide, and "F" should be ~Xm radius, indiv trees should be radius 5m at low elevation & 3m at high elevation? See Mathilde's metadata file
 # STILL NEED TO DIFFERENTIATE BUFFER SIZE BY TREE_SHRUB COLUMN
 trees_lf_buff <- pmap(
-  .l = list(shp.lc.L[c(1, 5:7)], buf.rad = c(4, 5, 5, 5)), # Buffer radii
+  .l = list(shp.lc.L[Trees_lf_names], buf.rad = c(4, 5, 5, 5)), # Buffer radii
   .f = \(shpL, buf.rad) buffer(shpL, buf.rad) %>% 
     select(-contains("tree_shrub"))
 )
@@ -133,27 +139,27 @@ t_lf_agg <- map(trees_lf_buff, \(t_lf){
 })
 
 # Remove empty id column & set the trees percentage = 100
-t_lf_agg[[1]] <- t_lf_agg[[1]] %>%
+t_lf_agg$individual_trees_final <- t_lf_agg$individual_trees_final %>%
   select(-mean_id) %>%
   mutate(trees_perc = 100)
 
 # Erase -------------------------------------------------------------------
 ## First erase (live fences) to create LC_holes1
 # After buffering there may still be overlap between individual trees & live fences, but there shouldn't be. Cut out live fences using the individual trees polygons
-trees_lf_buff[2:4] <- map2(t_lf_agg[2:4], t_lf_agg[1], \(lfs, trees){
+trees_lf_buff[Linear_names] <- map2(t_lf_agg[Linear_names], t_lf_agg["individual_trees_final"], \(lfs, trees){
   terra::erase(lfs, trees)
 })
 
 ## Cut out the buffered individual trees & live fences from the LC polygons
 # Live fences
-Lc_holes1 <- erase(shp.lc.L[[tbl_row + 1]], trees_lf_buff[[tbl_row + 1]])
+Lc_holes1 <- erase(shp.lc.L[[Lc_name]], trees_lf_buff[[Linear_name]])
 
 ## Second erase (individual trees) to create LC_holes2
-Lc_holes2 <- erase(Lc_holes1, trees_lf_buff[[1]])
+Lc_holes2 <- erase(Lc_holes1, trees_lf_buff$individual_trees_final)
 
 # Combine landcovers ------------------------------------------------------
 # Combine the holey polygon landcover, the live fences, and the individual trees
-Lcs_comb <- rbind(Lc_holes2, trees_lf_buff[[tbl_row + 1]], trees_lf_buff[[1]])
+Lcs_comb <- rbind(Lc_holes2, trees_lf_buff[[Linear_name]], trees_lf_buff$individual_trees_final)
 nrow(Lcs_comb)
 length(Lcs_comb$lc_typ)
 
@@ -179,7 +185,7 @@ if(FALSE){
 
 # Extract LC  -------------------------------------------------------------
 Pc_locs_dc2 <- Pc_locs_dc %>% 
-  filter(Uniq_db %in% Index_tbl[[tbl_row, "data_collector"]][[1]]) %>%
+  filter(Uniq_db %in% Period_tbl$data_collector[[match(Lc_period, Period_tbl$name)]]) %>%
   project("EPSG:4686") 
 Pc_locs_dc_proj <- Pc_locs_dc2 %>% project("EPSG:3116")
 
@@ -239,7 +245,7 @@ Snapped_lcs <- Snapped_lcs_l %>% vect()
 # Export ------------------------------------------------------------------
 ## Export cropped landcover shapefile - The polygons that mathilde digitized that have been processed in this R script
 Snapped_lcs #%>% 
-  #terra::writeVector(paste0("Derived/Geospatial/shp/R_processed/Snapped_", Index_tbl[[tbl_row, "name"]], ".gpkg")) #, overwrite = TRUE
+  #terra::writeVector(paste0("Derived/Geospatial/shp/R_processed/Snapped_", Lc_period, ".gpkg")) #, overwrite = TRUE
 stop()
 
 # Extras -----------------------------------------------------------------
@@ -267,7 +273,7 @@ Event_covs_pcs[,c("Id_survey", "Id_survey_no_dc", "Year")] %>%
 # Use the extent of a problematic set of polygons to examine the original shapefile
 bbox <- terra::ext(Intersect_lcs$`G-MB-M-A_01-B`)  # Extract extent
 
-shp.3116 <- shp.lc.L[[3]] %>% project("EPSG:3116")
+shp.3116 <- shp.lc.L$Lc_past_final %>% project("EPSG:3116")
 ggplot() +
   geom_spatvector(data = shp.3116) +
   coord_sf(xlim = c(bbox[1], bbox[2]),
@@ -280,7 +286,7 @@ nrow(Lc_holes1)
 length(Lc_holes1$poly_num)
 
 # Remove the polygons that are lost during erase so metadata aligns
-miss_ids <- setdiff(shp.lc.L[[tbl_row + 1]]$poly_num, Lc_holes1$poly_num) 
+miss_ids <- setdiff(shp.lc.L[[Lc_name]]$poly_num, Lc_holes1$poly_num) 
 miss_ids <- setNames(miss_ids, miss_ids)
 Lc_holes2 <- Lc_holes1 %>% filter(!poly_num %in% miss_ids)
 
@@ -290,14 +296,14 @@ length(Lc_holes2$poly_num)
 
 ## There are new missing polygons created in this erase! 
 # Examine and remove
-miss_ids3 <- setdiff(shp.lc.L[[tbl_row + 1]]$poly_num, Lc_holes3$poly_num)
+miss_ids3 <- setdiff(shp.lc.L[[Lc_name]]$poly_num, Lc_holes3$poly_num)
 miss_ids3 <- setNames(miss_ids3, miss_ids3)
 Lc_holes4 <- Lc_holes3 %>% filter(!poly_num %in% miss_ids3)
 
 ## Visualize polygons that are lost in the series of erases
 #if(FALSE){
 miss_id_plots <- imap(miss_ids3, \(id, name){
-  miss_poly <- shp.lc.L[[tbl_row + 1]] %>% filter(poly_num == id)
+  miss_poly <- shp.lc.L[[Lc_name]] %>% filter(poly_num == id)
   ggplot() + 
     geom_spatvector(data = miss_poly) + 
     labs(title = name) + 
@@ -328,7 +334,7 @@ Lc_holes1
 
 ## Intersect prob buffer with vp2
 # NOTE:: It is not the act of intersect that is removing the polygons in question
-Cropped_lcs_vp2 <- shp.lc.L[[tbl_row + 1]] %>% terra::intersect(Prob_groups) %>%
+Cropped_lcs_vp2 <- shp.lc.L[[Lc_name]] %>% terra::intersect(Prob_groups) %>%
   project("EPSG:3116")
 
 #Prob_muestreo <- Cropped_lcs_vp2 %>% filter(Id_survey %in% Prob_id_muestreo)
@@ -338,7 +344,7 @@ ggplot() + geom_spatvector(data = Cropped_lcs_vp2, alpha = .7) +
   geom_spatvector(data = Prob_muestreo, aes(fill = lc_typ), alpha = .6)
 
 ## Highlight polygons that are disappearing w/ erase() in blue. There are livefences likely causing at least some of the problems.
-miss_polys_vp2 <- shp.lc.L[[tbl_row + 1]] %>% filter(poly_num %in% dissappear_polys_id)
+miss_polys_vp2 <- shp.lc.L[[Lc_name]] %>% filter(poly_num %in% dissappear_polys_id)
 miss_polys_vp3 <- miss_polys_vp2 %>% filter(poly_num %in% c(471, 456))
 # Visualize
 ggplot() + 
@@ -361,7 +367,7 @@ safe_relate <- possibly(
 
 # Map over the input with safe_relate function
 overlap_matrix <- purrr::map(
-  shp.lc.L[tbl_row + 1], safe_relate, .progress = TRUE #shp.lc.L[2]
+  shp.lc.L[Lc_name], safe_relate, .progress = TRUE #shp.lc.L[2]
 )
 
 # Sort each row and remove duplicates
@@ -376,7 +382,7 @@ plots_middle <- list()
 for (i in 1:nrow(overlap_indices[[1]])) { #
   print(i)
   index_loop <- overlap_indices[[1]] %>% slice(i)
-  overlapping <- shp.lc.L[[tbl_row + 1]][c(index_loop[, 1], index_loop[, 2])]
+  overlapping <- shp.lc.L[[Lc_name]][c(index_loop[, 1], index_loop[, 2])]
   intersection <- terra::intersect(overlapping[1, ], overlapping[2, ])
   if (!is.empty(intersection)) {
     area_middle[i] <- round(expanse(intersection, unit = "m"), 2)
@@ -414,7 +420,7 @@ ggarrange(plots_middle[[1]], plots_middle[[2]], plots_middle[[3]], plots_middle[
 # See below for plotting of these polygons
 
 # Convert the polygons to sf
-Lcs_comb_sf <- shp.lc.L[[tbl_row + 1]] %>% st_as_sf()
+Lcs_comb_sf <- shp.lc.L[[Lc_name]] %>% st_as_sf()
 
 # Identify problematic polygons
 TF <- Lcs_comb_sf %>% st_is_valid()
@@ -423,7 +429,7 @@ corrected <- problematic %>% st_make_valid()
 
 #NOTE:: Difference in terra & sf
 table(TF)
-shp.lc.L[[tbl_row + 1]] %>% is.valid() %>% table() # makeValid() %>%
+shp.lc.L[[Lc_name]] %>% is.valid() %>% table() # makeValid() %>%
 
 # NOTE:: these are different areas, indicating that holes are being filled in
 #Lcs_comb2 %>% filter(poly_num == 2904) %>% expanse()
@@ -453,7 +459,7 @@ walk(plot_list, print)
 ## There were several polygons that were causing problems executing the script. Identify and remove for now until Mathilde / Natalia can fix 
 
 ## At present, the relate function works! (no Topology exception), thus the rest of this code is unnecessary 
-terra::relate(shp.lc.L[[tbl_row + 1]], pairs = FALSE, relation = "overlaps")
+terra::relate(shp.lc.L[[Lc_name]], pairs = FALSE, relation = "overlaps")
 
 ## Remove invalid polygons identified in sf
 # For whatever reason sf is more strict than terra -- some polygons that are valid in terra, are not valid in sf
@@ -466,7 +472,7 @@ Tf_l <- map(shp.lc.L, \(shp){
   TF <- sf_shp2 %>% st_is_valid()
   return(TF)
 }) 
-valid_polys <- shp.lc.L[[tbl_row + 1]][Tf_l[[tbl_row + 1]], ] #%>% mutate(poly_num = row_number())
+valid_polys <- shp.lc.L[[Lc_name]][Tf_l[[Lc_name]], ] #%>% mutate(poly_num = row_number())
 
 # Identify the polygons that overlap with the given points 
 prob_coords <- matrix(c(-73.793538544036281, 3.6730780784730706), ncol = 2, byrow = TRUE)
