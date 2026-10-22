@@ -41,8 +41,10 @@ conflicted::conflicts_prefer(terra::intersect)
 source("/Users/aaronskinner/Library/CloudStorage/OneDrive-UBC/Academia/Rcookbook/Themes_funs.R")
 
 # Load data
-Event_covs_pcs <- read_csv(file = "Derived/Excels/Event_covs_pcs.csv")
-Pc_locs_dc <- vect("Derived/Geospatial/shp/Pc_locs_dc.gpkg") 
+## Survey tables and point locations come from the wrangling repo; this script's own outputs go to this repo's Derived/
+Wrangling_repo <- "../Ssp-bird-data-wrangling/"
+Event_covs_pcs <- read_csv(file = paste0(Wrangling_repo, "Derived/Excels/Event_covs_pcs.csv"))
+Pc_locs_dc <- vect(paste0(Wrangling_repo, "Derived/Geospatial/shp/Pc_locs_dc.gpkg")) 
 
 # Rm Ubc El Hatico points -------------------------------------------------
 
@@ -164,7 +166,7 @@ Lcs_comb2 <- Lcs_comb %>% mutate(lc_typ2 = case_when(
 ## Visualize an example buffer
 if(FALSE){
   # Buffers from Landcover_digitization.R script
-  path <- "Derived/Geospatial/shp/"
+  path <- paste0(Wrangling_repo, "Derived/Geospatial/shp/")
   Buff_50m <- vect(paste0(path, "Buffers_50m/Buffers_50m.shp"))
   #Buff_300m <- vect(paste0(path, "Buffers_300m/Buffers_300m.shp"))
   ggplot() +
@@ -243,7 +245,7 @@ stop()
 # Extras -----------------------------------------------------------------
 # >Forest_typ -------------------------------------------------------------
 # WORKING
-Site_covs <- read_csv(file = "Derived/Excels/Site_covs.csv")
+Site_covs <- read_csv(file = paste0(Wrangling_repo, "Derived/Excels/Site_covs.csv"))
 Forest_typ_tbl <- Snapped_lcs[Pc_locs_dc_proj,] %>% 
   distinct(Id_survey, forest_typ) %>% 
   filter(!is.na(forest_typ)) %>%

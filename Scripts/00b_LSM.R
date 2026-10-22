@@ -39,8 +39,11 @@ conflicts_prefer(dplyr::filter)
 source("/Users/aaronskinner/Library/CloudStorage/OneDrive-UBC/Academia/Rcookbook/Themes_funs.R")
 
 # Load data
-Pc_locs_dc <- vect("Derived/Geospatial/shp/Pc_locs_dc.gpkg")
-Event_covs_pcs <- read_csv("Derived/Excels/Event_covs_pcs.csv")
+## Survey tables and point locations come from the wrangling repo; this script's own intermediates and outputs live in this repo's Derived/
+Wrangling_repo <- "../Ssp-bird-data-wrangling/"
+Pc_locs_dc <- vect(paste0(Wrangling_repo, "Derived/Geospatial/shp/Pc_locs_dc.gpkg"))
+Event_covs_pcs <- read_csv(paste0(Wrangling_repo, "Derived/Excels/Event_covs_pcs.csv"))
+Site_covs <- read_csv(paste0(Wrangling_repo, "Derived/Excels/Site_covs.csv"))
 
 # Which shapefile?  --------------------------------------------------------
 file_name <- "ubc" # middle, past, ubc
@@ -386,7 +389,11 @@ prob_pi_ids %>% as.data.frame() #%>%
 #)
 
 # >Load lsm, save object ------------------------------------------------
-Hab_join <- Pc_hab %>% distinct(Id_survey, Habitat) %>% 
+# Habitat of each point count, for plotting
+Hab_join <- Event_covs_pcs %>%
+  distinct(Id_survey, Id_survey_no_dc) %>%
+  left_join(distinct(Site_covs, Id_survey_no_dc, Habitat), by = "Id_survey_no_dc") %>%
+  distinct(Id_survey, Habitat) %>%
   filter(!is.na(Habitat))
 
 ## Lsm files
@@ -394,8 +401,10 @@ Lsm_path <- "Derived/Excels/Lsm"
 Lsm_files <- list.files(Lsm_path, pattern = "Lsm")
 
 # Read in files
+## The files written before the 2026-09 English rename have Id_muestreo; rename it on read
 Lsm_l <- map(Lsm_files, \(file){
-  read_excel(path = paste0(Lsm_path, "/", file))
+  read_excel(path = paste0(Lsm_path, "/", file)) %>%
+    rename(any_of(c(Id_survey = "Id_muestreo")))
 }) 
 names(Lsm_l) <- c("middle", "past", "ubc")
 
@@ -419,7 +428,8 @@ Min_dist_forest_files <- list.files(Min_dist_forest_path,
                                     pattern = ".csv")
 # Read in files
 Min_dist_forest_l <- map(Min_dist_forest_files, \(file){
-  read_csv(paste0(Min_dist_forest_path, "/", file))
+  read_csv(paste0(Min_dist_forest_path, "/", file)) %>%
+    rename(any_of(c(Id_survey = "Id_muestreo")))
 }) 
 names(Min_dist_forest_l) <- c("middle", "past", "ubc")
 
@@ -440,7 +450,7 @@ Min_dist_forest_l2$ubc %>% filter(is.na(data_year))
 
 # Join with Event_covs ----------------------------------------------------
 load("Rdata/Lsm_l.Rdata")
-Event_covs_pcs <- read_csv("Derived/Excels/Event_covs_pcs.csv")
+Event_covs_pcs <- read_csv(paste0(Wrangling_repo, "Derived/Excels/Event_covs_pcs.csv"))
 
 # Keep the 300m buffer
 Lsm_l_300 <- map(Lsm_l, \(Lsm_df){
@@ -460,7 +470,8 @@ Lsm_l_comb[2:3] <- map(Lsm_l_comb[2:3], \(df){
   df %>% rename(Year = data_year)
 })
 
-Lsm_df_exp %>% pull(Id_survey) %>% unique()
+# Number of distinct point counts per landcover file
+map_int(Lsm_l_comb, \(df) n_distinct(df$Id_survey))
 
   
 # Join site covs with landscapemetrics. First, match Site_covs_df with 'middle' shapefile, & then overwrite the middle file using the past & ubc files in the correct locations with rows_update() function
