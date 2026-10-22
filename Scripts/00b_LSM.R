@@ -6,7 +6,7 @@
 # Output: Lsm_df files with landscapemetrics
 
 # Instructions
-# Go to 'Which shapefile?' section and set filename to middle, ubc, or past. This determines which shapefile is processed & the landscapemetrics that are ultimately exported 
+# Go to 'Which shapefile?' section and set filename to middle, ubc, past, or el_hatico. This determines which shapefile is processed & the landscapemetrics that are ultimately exported 
 
 # Script contents ---------------------------------------------------------
 # 1) Load libraries and data
@@ -46,7 +46,7 @@ Event_covs_pcs <- read_csv(paste0(Wrangling_repo, "Derived/Excels/Event_covs_pcs
 Site_covs <- read_csv(paste0(Wrangling_repo, "Derived/Excels/Site_covs.csv"))
 
 # Which shapefile?  --------------------------------------------------------
-file_name <- "ubc" # middle, past, ubc
+file_name <- "ubc" # middle, past, ubc, el_hatico
 
 Snapped_lcs <- vect(paste0("Derived/Geospatial/shp/R_processed/Snapped_", file_name, ".gpkg"))
 
@@ -299,6 +299,11 @@ if(file_name == "ubc"){
   Lsm_df <- Lsm_df %>% mutate(data_year = 2022)
 }
 
+# El Hatico's layer (2023 imagery) is matched to the UBC El Hatico point counts surveyed in 2025
+if(file_name == "el_hatico"){
+  Lsm_df <- Lsm_df %>% mutate(data_year = 2025)
+}
+
 
 # Minimum distance to forest -------------------------------------------------
 #if(file_name == "middle"){
@@ -339,6 +344,7 @@ Min_dist_forest <- map(Ids, \(id) {
       pull(data_year) %>% 
       unique()
     }
+  else if(file_name == "el_hatico") {data_year <- 2025}
   # ubc
   else {data_year <- 2022}
   Min_dist_tbl$data_year <- data_year
@@ -406,7 +412,9 @@ Lsm_l <- map(Lsm_files, \(file){
   read_excel(path = paste0(Lsm_path, "/", file)) %>%
     rename(any_of(c(Id_survey = "Id_muestreo")))
 }) 
-names(Lsm_l) <- c("middle", "past", "ubc")
+## Name each file by its landcover period (from the file name, not its position in the folder)
+Lc_periods <- c("middle", "past", "ubc", "el_hatico")
+names(Lsm_l) <- str_extract(Lsm_files, paste(Lc_periods, collapse = "|"))
 
 # Pivot_longer for plotting 
 Lsm_long <- map(Lsm_l, \(lsm){
@@ -431,7 +439,7 @@ Min_dist_forest_l <- map(Min_dist_forest_files, \(file){
   read_csv(paste0(Min_dist_forest_path, "/", file)) %>%
     rename(any_of(c(Id_survey = "Id_muestreo")))
 }) 
-names(Min_dist_forest_l) <- c("middle", "past", "ubc")
+names(Min_dist_forest_l) <- str_extract(Min_dist_forest_files, paste(Lc_periods, collapse = "|"))
 
 # Format 
 Min_dist_forest_l2 <- map(Min_dist_forest_l, \(min_dist){
@@ -459,14 +467,15 @@ Lsm_l_300 <- map(Lsm_l, \(Lsm_df){
 })
 
 # Join Lsm with min_dist_forest
-Lsm_l_comb <- map2(Lsm_l_300, Min_dist_forest_l2, \(Lsm_df, Min_dist_df){
+Lsm_l_comb <- map2(Lsm_l_300, Min_dist_forest_l2[names(Lsm_l_300)], \(Lsm_df, Min_dist_df){
   Min_dist_df %>% select(-c(In_forest, Dist_to_edge)) %>% 
     full_join(Lsm_df)
 })
 
-# Rename year column in ubc & past files to match with the Event_covs_pcs file 
+# Rename year column in the non-middle files to match with the Event_covs_pcs file 
 Lsm_l_comb$middle <- Lsm_l_comb$middle %>% select(-data_year)
-Lsm_l_comb[2:3] <- map(Lsm_l_comb[2:3], \(df){
+Dated_periods <- setdiff(names(Lsm_l_comb), "middle")
+Lsm_l_comb[Dated_periods] <- map(Lsm_l_comb[Dated_periods], \(df){
   df %>% rename(Year = data_year)
 })
 
@@ -474,12 +483,15 @@ Lsm_l_comb[2:3] <- map(Lsm_l_comb[2:3], \(df){
 map_int(Lsm_l_comb, \(df) n_distinct(df$Id_survey))
 
   
-# Join site covs with landscapemetrics. First, match Site_covs_df with 'middle' shapefile, & then overwrite the middle file using the past & ubc files in the correct locations with rows_update() function
+# Join site covs with landscapemetrics. First, match Site_covs_df with 'middle' shapefile, & then overwrite the middle file using the past, ubc & el_hatico files in the correct locations with rows_update() function
+## unmatched = "ignore": a period file can include points that were not surveyed in its data_year (e.g. UBC points first surveyed in 2025 fall inside the 2022 ubc layer); those rows are skipped here
 # NOTE:: The 'lc_file' column specifies where the lc information comes from
-Event_covs_lsm <- Event_covs_pcs %>% 
-  left_join(Lsm_l_comb$middle) %>%
-  rows_update(Lsm_l_comb$ubc, by = c("Id_survey", "Year")) %>%
-  rows_update(Lsm_l_comb$past, by = c("Id_survey", "Year")) %>% 
+Update_periods <- base::intersect(c("ubc", "past", "el_hatico"), names(Lsm_l_comb))
+Event_covs_lsm <- reduce(
+  Lsm_l_comb[Update_periods],
+  \(acc, lsm_df) rows_update(acc, lsm_df, by = c("Id_survey", "Year"), unmatched = "ignore"),
+  .init = Event_covs_pcs %>% left_join(Lsm_l_comb$middle)
+  ) %>% 
   select(-lc_file)
 
 # >Fill in blanks until Natalia --------------------------------------------

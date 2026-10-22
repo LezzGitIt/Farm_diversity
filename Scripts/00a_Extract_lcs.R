@@ -7,7 +7,7 @@
 # Output: Snapped landcovers file
 
 # Instructions
-# Go to 'Which shapefile?' section and set Lc_period to middle, past, or ubc. This determines which file is processed & ultimately exported 
+# Go to 'Which shapefile?' section and set Lc_period to middle, past, ubc, or el_hatico. This determines which file is processed & ultimately exported 
 
 # Script contents ---------------------------------------------------------
 # 1) Load libraries and data
@@ -46,21 +46,22 @@ Wrangling_repo <- "../Ssp-bird-data-wrangling/"
 Event_covs_pcs <- read_csv(file = paste0(Wrangling_repo, "Derived/Excels/Event_covs_pcs.csv"))
 Pc_locs_dc <- vect(paste0(Wrangling_repo, "Derived/Geospatial/shp/Pc_locs_dc.gpkg")) 
 
-# Rm Ubc El Hatico points -------------------------------------------------
-
-Pc_locs_dc <- Pc_locs_dc %>% filter(Id_group != "UBC-MB-VC-EH")
+# El Hatico points ---------------------------------------------------------
+## The UBC El Hatico points (surveyed 2025) are matched to the El Hatico landcover layer (2023 imagery), not the ubc layer; the CIPAV El Hatico points (2017) stay with the middle layer. Points are assigned to periods in 'Extract LC'.
+Hatico_ubc_group <- "UBC-MB-VC-EH"
 
 # Which shapefile?  -------------------------------------------------------
 # This determines which file is processed & ultimately exported 
-Lc_period <- "ubc" # middle, past, ubc
+Lc_period <- "ubc" # middle, past, ubc, el_hatico
 
 # Data collectors whose point counts each landcover period covers (middle = every collector except Ubc mbd)
 Uniq_db <- Event_covs_pcs %>% 
   pull(Uniq_db) %>% 
   unique()
 Period_tbl <- tibble(
-  name = c("middle", "past", "ubc"), 
-  data_collector = list(setdiff(Uniq_db, "Ubc mbd"), c("Gaica mbd", "Cipav mbd"), "Ubc mbd")
+  name = c("middle", "past", "ubc", "el_hatico"), 
+  lc_layer = c(paste0("Lc_", c("middle", "past", "ubc"), "_final"), "landcovers_el_hatico_final"),
+  data_collector = list(setdiff(Uniq_db, "Ubc mbd"), c("Gaica mbd", "Cipav mbd"), "Ubc mbd", "Ubc mbd")
   )
 
 # Bring in data -----------------------------------------------------------
@@ -78,8 +79,9 @@ files.shp3 <- str_remove(files.shp2, ".gpkg")
 names(shp.lc.L) <- files.shp3
 
 # Layers are selected by name, not position, so adding a file to the folder (e.g. landcovers_el_hatico_final) cannot shift them
-Lc_name <- paste0("Lc_", Lc_period, "_final") # landcover polygons for this period
-Linear_name <- paste0("linear_", Lc_period, "_final") # live fences for this period
+Lc_name <- Period_tbl$lc_layer[Period_tbl$name == Lc_period] # landcover polygons for this period
+## El Hatico has no separate live-fence file: its trees and live fences are polygons in its single layer
+Linear_name <- if(Lc_period == "el_hatico") NULL else paste0("linear_", Lc_period, "_final") # live fences for this period
 Linear_names <- paste0("linear_", c("middle", "past", "ubc"), "_final")
 
 # Formatting LC dataframes
@@ -97,8 +99,7 @@ shp.lc.L$landcovers_el_hatico_final %>% pull(image_date) %>% unique()
 
 # Visualize El Hatico
 ggplot() + geom_spatvector(data = shp.lc.L$landcovers_el_hatico_final) + 
-  geom_spatvector(data = shp.lc.L$individual_trees_final) + # Individual trees
-  geom_spatvector(data = shp.lc.L[[Linear_name]])
+  geom_spatvector(data = shp.lc.L$individual_trees_final) # Individual trees
 
 # Subset individual trees -------------------------------------------------
 ## The individual trees file was not differentiated by the data collection year, given that individual trees left in pasture did not change much over the project. 
@@ -110,7 +111,7 @@ if(Lc_period %in% c("past", "ubc")){
 # Visualize 
 ggplot() + geom_spatvector(data = shp.lc.L[[Lc_name]]) + 
   geom_spatvector(data = shp.lc.L$individual_trees_final) + # Individual trees
-  geom_spatvector(data = shp.lc.L[[Linear_name]]) # Live fences
+  {if(!is.null(Linear_name)) geom_spatvector(data = shp.lc.L[[Linear_name]])} # Live fences
 
 # Buffer -----------------------------------------------------------------
 ## Format linear features & individual trees
@@ -150,16 +151,22 @@ trees_lf_buff[Linear_names] <- map2(t_lf_agg[Linear_names], t_lf_agg["individual
   terra::erase(lfs, trees)
 })
 
-## Cut out the buffered individual trees & live fences from the LC polygons
-# Live fences
-Lc_holes1 <- erase(shp.lc.L[[Lc_name]], trees_lf_buff[[Linear_name]])
-
-## Second erase (individual trees) to create LC_holes2
-Lc_holes2 <- erase(Lc_holes1, trees_lf_buff$individual_trees_final)
+## Cut out the buffered individual trees & live fences from the LC polygons (not for El Hatico, whose layer already holds its trees and live fences as non-overlapping polygons)
+if(Lc_period != "el_hatico"){
+  # Live fences
+  Lc_holes1 <- erase(shp.lc.L[[Lc_name]], trees_lf_buff[[Linear_name]])
+  
+  ## Second erase (individual trees) to create LC_holes2
+  Lc_holes2 <- erase(Lc_holes1, trees_lf_buff$individual_trees_final)
+}
 
 # Combine landcovers ------------------------------------------------------
-# Combine the holey polygon landcover, the live fences, and the individual trees
-Lcs_comb <- rbind(Lc_holes2, trees_lf_buff[[Linear_name]], trees_lf_buff$individual_trees_final)
+# Combine the holey polygon landcover, the live fences, and the individual trees; El Hatico's layer is used as is
+if(Lc_period != "el_hatico"){
+  Lcs_comb <- rbind(Lc_holes2, trees_lf_buff[[Linear_name]], trees_lf_buff$individual_trees_final)
+} else {
+  Lcs_comb <- shp.lc.L[[Lc_name]]
+}
 nrow(Lcs_comb)
 length(Lcs_comb$lc_typ)
 
@@ -186,6 +193,8 @@ if(FALSE){
 # Extract LC  -------------------------------------------------------------
 Pc_locs_dc2 <- Pc_locs_dc %>% 
   filter(Uniq_db %in% Period_tbl$data_collector[[match(Lc_period, Period_tbl$name)]]) %>%
+  # UBC El Hatico points go with the El Hatico layer only
+  filter(if(Lc_period == "el_hatico") Id_group == Hatico_ubc_group else Id_group != Hatico_ubc_group) %>%
   project("EPSG:4686") 
 Pc_locs_dc_proj <- Pc_locs_dc2 %>% project("EPSG:3116")
 
