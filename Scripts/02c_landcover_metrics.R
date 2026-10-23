@@ -1,8 +1,8 @@
 # Digitized land-cover metrics around each assemblage (EXPLORATORY) ----
 
-### Exploratory test of whether the hand-digitized land-cover layers (Ch1-ssp-birds 00a_Extract_lcs.R output) add information beyond this repo's existing covariates. For each assemblage -- [data collector . farm . year-group . season] -- the 300 m buffers of its point counts are dissolved into one footprint (so overlapping buffers are not counted twice), the land-cover polygons inside it are rasterized at 1 m, and the class percentages (pland: forest / intpast / ssp / other) and total edge (te) are computed with landscapemetrics, matching Ch1's 00b_LSM.R. te scales with footprint area, so edge density (ed = te / covered ha) is the comparable metric across assemblages.
+### Exploratory test of whether the hand-digitized land-cover layers (00a_Extract_lcs.R output) add information beyond this repo's existing covariates. For each assemblage -- [data collector . farm . year-group . season] -- the 300 m buffers of its point counts are dissolved into one footprint (so overlapping buffers are not counted twice), the land-cover polygons inside it are rasterized at 1 m, and the class percentages (pland: forest / intpast / ssp / other) and total edge (te) are computed with landscapemetrics, matching 00b_LSM.R. te scales with footprint area, so edge density (ed = te / covered ha) is the comparable metric across assemblages.
 
-### Inputs read from Ch1 (not re-digitized, not re-run): `../Ch1-ssp-birds/Derived/Geospatial/shp/R_processed/Snapped_{middle,past,ubc,el_hatico}.gpkg` (2026-10-22 rerun). Each layer holds the polygons within 300 m of each point, copied per `Id_survey`; polygons are selected here spatially (those intersecting the footprint), so a point need not be keyed in the layer as long as a neighbour's copy covers it.
+### Inputs (00a output; not re-run here): `Derived/Geospatial/shp/R_processed/Snapped_{middle,past,ubc,el_hatico}.gpkg` (2026-10-22 run, made in Ch1-ssp-birds before 00a / 00b moved here). Each layer holds the polygons within 300 m of each point, copied per `Id_survey`; polygons are selected here spatially (those intersecting the footprint), so a point need not be keyed in the layer as long as a neighbour's copy covers it.
 
 ### One period layer per assemblage, used whole (no image_date filtering -- each layer is a mosaic of imagery years). Matches 00b: past for 2013 surveys (2016 for G-MB-G-CB), ubc for 2022, el_hatico for the 2025 UBC El Hatico survey, middle otherwise. Choices not covered by 00b's rule: the 2025-26 UBC assemblages and the 2024 UBC-Gaica re-surveys take ubc (the latest digitization; Aaron, 2026-10-22), and any assemblage with a point not in its period layer -- under any collector's id -- falls back to middle (the 2013 assemblages outside the past layer, UBC-Gaica 2024 on La Pradera 1 / La Cristalina / El Porvenir 1, and UBC 2025-26 on La Cristalina / El Porvenir 1, whose points have no digitization newer than middle).
 
@@ -27,7 +27,7 @@ dir.create("Derived/Excels", recursive = TRUE, showWarnings = FALSE)
 
 # Configuration ----
 
-lc_dir <- "../Ch1-ssp-birds/Derived/Geospatial/shp/R_processed"
+lc_dir <- "Derived/Geospatial/shp/R_processed"
 lc_periods <- c("middle", "past", "ubc", "el_hatico")
 
 ## Point-count buffer radius (m) -- the snapped layers only extend 300 m from each point, so this is also the maximum
@@ -158,10 +158,10 @@ if (file.exists(metrics_csv)) {
 cat("\nLand-cover metrics:", nrow(Lc_metrics), "assemblages,", n_distinct(Lc_metrics$Id_scr), "farms.\n")
 print(summary(Lc_metrics %>% select(footprint_ha, covered_pct, all_of(lc_classes), ed)))
 
-# Cross-check against Ch1's point-level metrics ----
+# Cross-check against the point-level metrics ----
 
-## Ch1's Event_covs_lsm.csv holds the same pland / te per point x year (300 m circle). The assemblage footprint value should track the mean of its points' values; it differs because shared buffer area is counted once here.
-Ch1_points <- read_csv("../Ch1-ssp-birds/Derived/Excels/Event_covs_lsm.csv", show_col_types = FALSE) %>%
+## 00b's Event_covs_lsm.csv holds the same pland / te per point x year (300 m circle). The assemblage footprint value should track the mean of its points' values; it differs because shared buffer area is counted once here.
+Ch1_points <- read_csv("Derived/Excels/Event_covs_lsm.csv", show_col_types = FALSE) %>%
   distinct(Id_survey, Year, forest, intpast, other, ssp, te)
 
 Point_mean <- assemblage_pcs %>%

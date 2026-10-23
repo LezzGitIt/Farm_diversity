@@ -20,12 +20,14 @@ All code lives in `Scripts/`.
 
 **Data prep and exploration**
 
+- `00a_Extract_lcs.R` — Digitized land-cover polygons for each period (middle, past, ubc, el_hatico) → snapped land-cover layers within 300 m of each point count (`Derived/Geospatial/shp/R_processed/Snapped_*.gpkg`); reads the digitization from `../../Mentorship/Digitization_Mathilde/`. Moved from Ch1-ssp-birds with history, 2026-10-23
+- `00b_LSM.R` — Point-level landscape metrics per period (e.g. `Dist_forest`, `ssp`, `te`), joined to the survey table → `Derived/Excels/Event_covs_lsm.csv`, which Ch1-ssp-birds also reads
 - `00_bird_diversity_estimates.R` — Point counts → per-assemblage Hill-number diversity, two estimates: point-count-standardised incidence, and abundance/coverage-standardised
 - `01a_farm_data.R` — Farm-level environmental covariates + the four diversification indices, matched to farms with at least one assemblage-level bird-diversity estimate
 - `01b_species_pool.R` — Per-farm potential species pool from range maps (raw count + endemism-weighted)
 - `02a_extract_canopy_buffers.R` — Woody-vegetation canopy cover (WVCC) around each assemblage at 18 radii (200 m – 10 km)
 - `02b_scale_of_effect.R` — Which WVCC radius best explains diversity 
-- `02c_landcover_metrics.R` — EXPLORATORY: digitized land cover (forest / intensive pasture / silvopasture / other %, edge density) in the dissolved 300 m point-count buffers of each assemblage, read from the Ch1-ssp-birds land-cover layers, and how it compares with the existing covariates
+- `02c_landcover_metrics.R` — EXPLORATORY: digitized land cover (forest / intensive pasture / silvopasture / other %, edge density) in the dissolved 300 m point-count buffers of each assemblage, from the `00a` land-cover layers, and how it compares with the existing covariates
 - `03_exploratory.R` — Exploratory plots: the indices, and how everything varies among ecoregions
 
 **Management-diversification analysis**
@@ -46,6 +48,8 @@ All code lives in `Scripts/`.
 Scripts use paths relative to the project root and are numbered in run order. The bird point-count tables are read from the sibling data-paper repo (`../Ssp-bird-data-wrangling/Derived/Excels/`, English column names; set `WRANGLING_EXCELS` in `Scripts/Shared_paths.R`). Every script downstream of `00` reads the diversity export whose date stamp is pinned by `TAX_DIV_VERSION` in `Shared_paths.R` -- after re-running `00`, update that value deliberately (re-running `00` alone does not change what the models see).
 
 ``` r
+source("Scripts/00a_Extract_lcs.R")               # re-run only when the digitization changes; once per period
+source("Scripts/00b_LSM.R")                       # once per period, then its join section
 source("Scripts/00_bird_diversity_estimates.R")   # slow (~1 h); re-run only when the point-count data changes
 source("Scripts/01a_farm_data.R")
 source("Scripts/01b_species_pool.R")

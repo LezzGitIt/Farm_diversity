@@ -426,7 +426,7 @@ Lsm_long <- map(Lsm_l, \(lsm){
                values_to = "Percent_cover")
 
 # Export Rdata object
-save(Lsm_l, Lsm_long, file = "Rdata/Lsm_l.Rdata")
+save(Lsm_l, Lsm_long, file = "Derived/Lsm_l.Rdata")
 
 
 # >Load Min_dist_forest ---------------------------------------------------
@@ -457,7 +457,7 @@ Min_dist_forest_l2 <- map(Min_dist_forest_l, \(min_dist){
 Min_dist_forest_l2$ubc %>% filter(is.na(data_year))
 
 # Join with Event_covs ----------------------------------------------------
-load("Rdata/Lsm_l.Rdata")
+load("Derived/Lsm_l.Rdata")
 Event_covs_pcs <- read_csv(paste0(Wrangling_repo, "Derived/Excels/Event_covs_pcs.csv"))
 
 # Keep the 300m buffer
