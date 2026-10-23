@@ -10,6 +10,7 @@
 ###   ideal_adj     (was 04h) -- the DAG-ideal adjustment (climate + climate^2 + species pool + landscape forest, no Ecoregion factor) + a full collinearity assessment.
 ###   endemism_pool (was 04i) -- swap the raw pool count for the range-rarity-weighted pool_cwe; does an endemism-weighted pool change the estimate?
 ###   spline_env    (was 04j) -- replace the elevation / precipitation quadratics with rigid k = 4 splines; is the quadratic's symmetry distorting the focal coefficient?
+###   forest_only   -- point placement: add an All_forest term, or let the focal slope differ by survey scope (focal x All_forest). Cmax response only.
 
 ### `pool_blocks` / `spec_checks` / `response_dist` / `ideal_adj` / `endemism_pool` still carry the PRE-2026-08-31 climate block (Num_hab_z, no pool_wes_z; ecoregion has canopy) -- deliberately frozen (Aaron): their conclusions are about the response / RE / pool, not the exact climate parameterisation. `piedemonte` and `spline_env` are on the current spec.
 
@@ -38,7 +39,7 @@ set.seed(1989)
 
 ## Which sections to run this pass (each is independently cached via file_refit = "on_change")
 run_sections <- c("piedemonte", "pool_blocks", "spec_checks", "response_dist",
-                  "ideal_adj", "endemism_pool", "spline_env")
+                  "ideal_adj", "endemism_pool", "spline_env", "forest_only")
 
 # Shared constants + inputs ----
 
@@ -1107,6 +1108,109 @@ if ("spline_env" %in% run_sections) {
   cat("[spline_env] largest |change| in the focal coefficient:",
       round(max(abs(Focal_compare$delta_est), na.rm = TRUE), 4), "SD;",
       sum(Focal_compare$crI_conclusion_changes, na.rm = TRUE), "of", nrow(Focal_compare), "CrI zero-exclusion flips\n")
+}
+
+# Section: forest_only ----
+### Point-placement check. The 2013 / 2016-17 Gaica surveys and their 2022-26 UBC / UBC-Gaica re-surveys sampled forest only, so those assemblages' diversity reflects forest birds, not the land-use gradient (55 of 112 assemblages; CIPAV 2016-17 did span the gradient). Versions of the 04a coverage-based (Cmax) primary models, both adjustment sets, all three Hill numbers: `all` = same-frame reference (04a refit under its own key), `forest_cov` = all assemblages + an `All_forest` 0/1 term. Focal predictors: each of the four indices (one at a time, as 04a). Likelihood unchanged from 04a: Gaussian on log diversity with the iNEXT SE via resp_se(). Predictors keep 04a's full-frame z-scaling, so coefficients are per SD of the full data. A third version, `forest_int` (Aaron, 2026-10-22), keeps all assemblages and interacts the focal predictor with All_forest: All_forest = 0 is gradient-surveyed, so the main focal term is the gradient slope and focal:All_forest the forest-only minus gradient difference; the forest-only slope is derived from the joint draws (Derived/Excels/Forest_int_slopes.csv). Unlike an intercept-only All_forest term, this lets the management slope differ by survey scope. It replaces an earlier `gradient` variant that dropped the forest-only assemblages: the interaction's gradient slope estimates the same quantity (and agreed with it) while keeping all assemblages and the farm RE, which the ~1-assemblage-per-farm subset could not support (Aaron, 2026-10-23).
+
+if ("forest_only" %in% run_sections) {
+  message("\n=== Section: forest_only ===")
+
+  fo_iter <- 4000; fo_warmup <- 1500; fo_adapt <- 0.995
+
+  fo_specs <- c(
+    climate   = "Elev_mean_z + I(Elev_mean_z^2) + Tot_prec_mean_z + I(Tot_prec_mean_z^2) + canopy_10k_z + pool_wes_z",
+    ecoregion = "Ecoregion"
+  )
+  fo_focals <- div_indices
+  fo_variants <- c("all", "forest_cov", "forest_int")
+
+  ## All_forest per assemblage (Shared_fns.R)
+  Hab_mix <- assemblage_habitat_mix(
+    read_csv(file.path(WRANGLING_EXCELS, "Site_covs.csv"), show_col_types = FALSE),
+    read_csv(file.path(WRANGLING_EXCELS, "Event_covs.csv"), show_col_types = FALSE)
+  )
+  Fo_data <- Base_frame %>%
+    left_join(select(Hab_mix, Assemblage, All_forest), by = "Assemblage")
+  stopifnot(!anyNA(Fo_data$All_forest))
+
+  ## Same row filters as 04a's cmax_frame (primary data subset)
+  fo_frame <- function(row) {
+    df <- Fo_data %>%
+      filter(Hill == row$hill, !is.na(se_log), !is.na(Num_pc_log_z), !is.na(doy_sin),
+             !is.na(dist_farm), dist_farm < dist_threshold)
+    df <- df %>% mutate(focal_z = .data[[paste0(row$focal, "_z")]]) %>% filter(!is.na(focal_z))
+    if (row$spec == "climate") {
+      df <- df %>% filter(!is.na(Tot_prec_mean_z), !is.na(Elev_mean_z), !is.na(canopy_10k_z), !is.na(pool_wes_z))
+    }
+    df
+  }
+
+  fo_grid <- expand_grid(focal = fo_focals, variant = fo_variants, spec = names(fo_specs),
+                         hill = c("richness", "shannon", "simpson")) %>%
+    mutate(key = paste("forestonly", variant, hill, focal, spec, sep = "__"))
+
+  fo_fits <- fit_model_grid(
+    fo_grid,
+    build_bf = function(row) mgmt_bf(
+      "log_response | resp_se(se_log, sigma = TRUE)",
+      if (row$variant == "forest_int") "focal_z * All_forest" else "focal_z",
+      c(fo_specs[[row$spec]], if (row$variant == "forest_cov") "All_forest",
+        "Num_pc_log_z", "doy_sin", "doy_cos", "(1 | Id_scr)", "(1 | CollectorXyear)")
+    ),
+    build_data = fo_frame,
+    iter = fo_iter, warmup = fo_warmup, adapt_delta = fo_adapt
+  )
+
+  Fo_summ <- tidy_model_fits(fo_fits, fo_grid) %>%
+    filter(term %in% c("focal_z", "All_forest")) %>%
+    mutate(n_farms = map_int(key, \(k) n_distinct(fo_fits[[k]]$data$Id_scr)),
+           across(c(estimate, conf_low, conf_high, p_direction_pos, bayes_R2), ~ round(.x, 3))) %>%
+    select(focal, variant, spec, hill, term, estimate, conf_low, conf_high, p_direction_pos,
+           n_obs, n_farms, bayes_R2, max_rhat, n_divergent) %>%
+    arrange(focal, term, spec, hill, variant)
+  write_csv(Fo_summ, "Derived/Excels/Forest_only_checks.csv")
+
+  ## forest_int: gradient slope (main term), forest-only slope (main + interaction) and their difference, from the joint posterior draws
+  slope_row <- function(draws, slope, focal, spec, hill, term) {
+    tibble(focal, spec, hill, term, slope,
+           estimate = median(draws), conf_low = quantile(draws, 0.05, names = FALSE),
+           conf_high = quantile(draws, 0.95, names = FALSE), p_direction_pos = mean(draws > 0))
+  }
+  Fo_int_slopes <- fo_grid %>%
+    filter(variant == "forest_int") %>%
+    pmap(\(key, focal, spec, hill, ...) {
+      dr <- posterior::as_draws_df(fo_fits[[key]])
+      b_grad <- dr[["b_focal_z"]]
+      b_diff <- dr[["b_focal_z:All_forest"]]
+      bind_rows(slope_row(b_grad, "gradient", focal, spec, hill, "focal_z"),
+                slope_row(b_grad + b_diff, "forest_only", focal, spec, hill, "focal_z"),
+                slope_row(b_diff, "difference", focal, spec, hill, "focal_z"))
+    }) %>%
+    list_rbind() %>%
+    mutate(across(c(estimate, conf_low, conf_high, p_direction_pos), ~ round(.x, 3)))
+  write_csv(Fo_int_slopes, "Derived/Excels/Forest_int_slopes.csv")
+
+  cat("\n[forest_only] focal coefficient (90% CrI) by variant -- all = reference, forest_cov = + All_forest, forest_int = gradient slope from the interaction model\n")
+  Fo_summ %>%
+    filter(term != "All_forest") %>%
+    mutate(cell = sprintf("%+.2f [%+.2f, %+.2f]", estimate, conf_low, conf_high)) %>%
+    select(focal, term, spec, hill, variant, cell) %>%
+    pivot_wider(names_from = variant, values_from = cell) %>%
+    print(n = Inf, width = Inf)
+  cat("[forest_only] forest_int: focal slope in gradient vs forest-only assemblages, and the difference (90% CrI)\n")
+  Fo_int_slopes %>%
+    mutate(cell = sprintf("%+.2f [%+.2f, %+.2f]", estimate, conf_low, conf_high)) %>%
+    select(focal, term, spec, hill, slope, cell) %>%
+    pivot_wider(names_from = slope, values_from = cell) %>%
+    print(n = Inf, width = Inf)
+  cat("[forest_only] All_forest coefficient (forest_cov variant)\n")
+  Fo_summ %>% filter(term == "All_forest", variant == "forest_cov") %>%
+    select(focal, spec, hill, estimate, conf_low, conf_high, p_direction_pos) %>% print(n = Inf)
+  cat("[forest_only] sample sizes and convergence\n")
+  Fo_summ %>% distinct(focal, variant, spec, hill, n_obs, n_farms, max_rhat, n_divergent) %>%
+    summarize(n_obs = paste(range(n_obs), collapse = "-"), n_farms = paste(range(n_farms), collapse = "-"),
+              max_rhat = max(max_rhat), n_divergent = sum(n_divergent), .by = c(variant, spec)) %>% print()
 }
 
 message("\n=== 04b done: ", paste(run_sections, collapse = ", "), " ===")

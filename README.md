@@ -31,7 +31,7 @@ All code lives in `Scripts/`.
 **Management-diversification analysis**
 
 - `04a_farm_mgmt_models.R` — PRIMARY analysis: bird diversity ~ each diversification index, two responses × two adjustment sets, Bayesian measurement-error models (brms)
-- `04b_farm_mgmt_robustness.R` — Model specification checks (set `run_sections` to run a subset): single-ecoregion cut, species-pool terms, measurement-error / likelihood checks, DAG-ideal adjustment + collinearity, spline vs quadratic environment
+- `04b_farm_mgmt_robustness.R` — Model specification checks (set `run_sections` to run a subset): single-ecoregion cut, species-pool terms, measurement-error / likelihood checks, DAG-ideal adjustment + collinearity, spline vs quadratic environment, survey scope (forest-only vs land-use-gradient point placement, incl. a focal × forest-only interaction)
 - `05_farm_mgmt_plots.R` — Every figure for the management question (reads 04a/04b output)
 
 **Reports (`qmd/`)**
