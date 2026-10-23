@@ -25,6 +25,7 @@ All code lives in `Scripts/`.
 - `01b_species_pool.R` — Per-farm potential species pool from range maps (raw count + endemism-weighted)
 - `02a_extract_canopy_buffers.R` — Woody-vegetation canopy cover (WVCC) around each assemblage at 18 radii (200 m – 10 km)
 - `02b_scale_of_effect.R` — Which WVCC radius best explains diversity 
+- `02c_landcover_metrics.R` — EXPLORATORY: digitized land cover (forest / intensive pasture / silvopasture / other %, edge density) in the dissolved 300 m point-count buffers of each assemblage, read from the Ch1-ssp-birds land-cover layers, and how it compares with the existing covariates
 - `03_exploratory.R` — Exploratory plots: the indices, and how everything varies among ecoregions
 
 **Management-diversification analysis**

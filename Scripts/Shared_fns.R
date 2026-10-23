@@ -1,6 +1,6 @@
 # Shared modelling helpers for the farm-management models ----
 
-### Sourced by Scripts/04a / 04b: priors, formula builder, Stan-compile-sharing grid fitter, tidiers. Assumes `brms` + the tidyverse are already attached (those scripts load them); building `MGMT_PRIORS` needs the `brms` package installed but not attached. The input paths are separate, in Scripts/Shared_paths.R.
+### Sourced by Scripts/04a / 04b (and 02c for the habitat-mix helper): priors, formula builder, Stan-compile-sharing grid fitter, tidiers, assemblage habitat mix. Assumes `brms` + the tidyverse are already attached (those scripts load them); building `MGMT_PRIORS` needs the `brms` package installed but not attached. The input paths are separate, in Scripts/Shared_paths.R.
 
 # Priors ----
 
@@ -117,4 +117,23 @@ focal_fit_summary <- function(fits, grid, focal = "focal_z", ci = 0.90) {
   }) |>
     purrr::list_rbind() |>
     dplyr::left_join(grid, by = "key")
+}
+
+# Assemblage habitat mix ----
+
+## Habitat of the point counts each assemblage surveyed (Site_covs `Habitat`), one row per assemblage: number of distinct points, % in forest (`Bosque`) and in silvopasture (`Ssp`), and `All_forest` = 1 if every point is forest. The 2013 / 2016-17 Gaica surveys and their 2024-26 UBC / UBC-Gaica re-surveys are forest-only by protocol, so this flags assemblages whose diversity estimate reflects forest birds rather than the land-use gradient.
+##   site_covs  -- data-paper Site_covs table (Id_survey_no_dc, Id_scr, Habitat)
+##   event_covs -- data-paper Event_covs table (Id_survey_no_dc, Uniq_db, Year, Year_grp, Season)
+assemblage_habitat_mix <- function(site_covs, event_covs) {
+  event_covs |>
+    dplyr::filter(!is.na(Year)) |>
+    dplyr::left_join(dplyr::select(site_covs, Id_survey_no_dc, Id_scr, Habitat), by = "Id_survey_no_dc") |>
+    dplyr::filter(!is.na(Id_scr)) |>
+    dplyr::mutate(Assemblage = gsub(" |-", "_", paste(Uniq_db, Id_scr, Year_grp, Season, sep = "."))) |>
+    dplyr::distinct(Assemblage, Id_survey_no_dc, Habitat) |>
+    dplyr::summarize(n_pts = dplyr::n(),
+                     pts_forest_pct = 100 * mean(Habitat == "Bosque"),
+                     pts_ssp_pct = 100 * mean(Habitat == "Ssp"),
+                     All_forest = as.integer(all(Habitat == "Bosque")),
+                     .by = Assemblage)
 }
