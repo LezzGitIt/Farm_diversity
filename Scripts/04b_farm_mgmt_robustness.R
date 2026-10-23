@@ -10,7 +10,7 @@
 ###   ideal_adj     (was 04h) -- the DAG-ideal adjustment (climate + climate^2 + species pool + landscape forest, no Ecoregion factor) + a full collinearity assessment.
 ###   endemism_pool (was 04i) -- swap the raw pool count for the range-rarity-weighted pool_cwe; does an endemism-weighted pool change the estimate?
 ###   spline_env    (was 04j) -- replace the elevation / precipitation quadratics with rigid k = 4 splines; is the quadratic's symmetry distorting the focal coefficient?
-###   forest_only   -- point placement: add an All_forest term, or let the focal slope differ by survey scope (focal x All_forest). Cmax response only.
+###   forest_only   -- point placement: add an All_forest term, or let the focal slope differ by survey scope (focal x All_forest); and the digitized land cover (silvopasture % + edge density, Scripts/02c) in place of an index. Cmax response only.
 
 ### `pool_blocks` / `spec_checks` / `response_dist` / `ideal_adj` / `endemism_pool` still carry the PRE-2026-08-31 climate block (Num_hab_z, no pool_wes_z; ecoregion has canopy) -- deliberately frozen (Aaron): their conclusions are about the response / RE / pool, not the exact climate parameterisation. `piedemonte` and `spline_env` are on the current spec.
 
@@ -1111,7 +1111,7 @@ if ("spline_env" %in% run_sections) {
 }
 
 # Section: forest_only ----
-### Point-placement check. The 2013 / 2016-17 Gaica surveys and their 2022-26 UBC / UBC-Gaica re-surveys sampled forest only, so those assemblages' diversity reflects forest birds, not the land-use gradient (55 of 112 assemblages; CIPAV 2016-17 did span the gradient). Versions of the 04a coverage-based (Cmax) primary models, both adjustment sets, all three Hill numbers: `all` = same-frame reference (04a refit under its own key), `forest_cov` = all assemblages + an `All_forest` 0/1 term. Focal predictors: each of the four indices (one at a time, as 04a). Likelihood unchanged from 04a: Gaussian on log diversity with the iNEXT SE via resp_se(). Predictors keep 04a's full-frame z-scaling, so coefficients are per SD of the full data. A third version, `forest_int` (Aaron, 2026-10-22), keeps all assemblages and interacts the focal predictor with All_forest: All_forest = 0 is gradient-surveyed, so the main focal term is the gradient slope and focal:All_forest the forest-only minus gradient difference; the forest-only slope is derived from the joint draws (Derived/Excels/Forest_int_slopes.csv). Unlike an intercept-only All_forest term, this lets the management slope differ by survey scope. It replaces an earlier `gradient` variant that dropped the forest-only assemblages: the interaction's gradient slope estimates the same quantity (and agreed with it) while keeping all assemblages and the farm RE, which the ~1-assemblage-per-farm subset could not support (Aaron, 2026-10-23).
+### Point-placement check. The 2013 / 2016-17 Gaica surveys and their 2022-26 UBC / UBC-Gaica re-surveys sampled forest only, so those assemblages' diversity reflects forest birds, not the land-use gradient (55 of 112 assemblages; CIPAV 2016-17 did span the gradient). Versions of the 04a coverage-based (Cmax) primary models, both adjustment sets, all three Hill numbers: `all` = same-frame reference (04a refit under its own key), `forest_cov` = all assemblages + an `All_forest` 0/1 term. Focal predictors: each of the four indices (one at a time, as 04a), then the digitized land cover (silvopasture % + edge density together, Scripts/02c) in place of an index. Likelihood unchanged from 04a: Gaussian on log diversity with the iNEXT SE via resp_se(). Predictors keep 04a's full-frame z-scaling, so coefficients are per SD of the full data. A third version, `all_farms_ref` (land-cover models only), adds the 4 assemblages on the 3 reference farms (El Hatico, La Luisa, Lucerna): they have no diversification row, so 04a's frame drops them, but the land-cover models do not need one; their covariates are scaled with the frame's means / SDs so coefficients stay comparable. A fourth version, `forest_int` (Aaron, 2026-10-22), keeps all assemblages (plus the reference farms for the land-cover models) and interacts the focal predictor with All_forest: All_forest = 0 is gradient-surveyed, so the main focal term is the gradient slope and focal:All_forest the forest-only minus gradient difference; the forest-only slope is derived from the joint draws (Derived/Excels/Forest_int_slopes.csv). Unlike an intercept-only All_forest term, this lets the management slope differ by survey scope. It replaces an earlier `gradient` variant that dropped the forest-only assemblages: the interaction's gradient slope estimates the same quantity (and agreed with it) while keeping all assemblages and the farm RE, which the ~1-assemblage-per-farm subset could not support (Aaron, 2026-10-23).
 
 if ("forest_only" %in% run_sections) {
   message("\n=== Section: forest_only ===")
@@ -1122,24 +1122,79 @@ if ("forest_only" %in% run_sections) {
     climate   = "Elev_mean_z + I(Elev_mean_z^2) + Tot_prec_mean_z + I(Tot_prec_mean_z^2) + canopy_10k_z + pool_wes_z",
     ecoregion = "Ecoregion"
   )
-  fo_focals <- div_indices
+  fo_focals <- c(div_indices, "landcover")
   fo_variants <- c("all", "forest_cov", "forest_int")
 
-  ## All_forest per assemblage (Shared_fns.R)
+  ## All_forest per assemblage (Shared_fns.R) and the land-cover metrics, z-scored across the frame's assemblages
   Hab_mix <- assemblage_habitat_mix(
     read_csv(file.path(WRANGLING_EXCELS, "Site_covs.csv"), show_col_types = FALSE),
     read_csv(file.path(WRANGLING_EXCELS, "Event_covs.csv"), show_col_types = FALSE)
   )
-  Fo_data <- Base_frame %>%
-    left_join(select(Hab_mix, Assemblage, All_forest), by = "Assemblage")
+  Lc_all <- read_csv("Derived/Excels/Landcover_assemblage_metrics.csv", show_col_types = FALSE)
+  Lc_frame <- semi_join(Lc_all, Base_frame, by = "Assemblage")
+  z_with <- function(x, ref) (x - mean(ref, na.rm = TRUE)) / sd(ref, na.rm = TRUE)
+  Lc_z <- Lc_all %>%
+    mutate(ssp_z = z_with(ssp, Lc_frame$ssp), ed_z = z_with(ed, Lc_frame$ed)) %>%
+    select(Assemblage, ssp, ed, ssp_z, ed_z)
+
+  ## Reference-farm rows, built as 04a builds its frame (Cmax responses + sampling covariates + climate / pool / 10 km canopy), z-scored with Base_frame's means / SDs
+  Ref_div <- bind_rows(
+    read_csv(tax_div_path("coverage65"), show_col_types = FALSE) %>%
+      filter(Order.q == 0) %>%
+      mutate(Hill = "richness", response = No_Asy_TD, response_se = No_Asy_TD_se),
+    read_csv(tax_div_path("all_farms"), show_col_types = FALSE) %>%
+      filter(Order.q %in% c(1, 2)) %>%
+      mutate(Hill = if_else(Order.q == 1, "shannon", "simpson"), response = TD_asy, response_se = `s.e.`)
+  ) %>%
+    ## the diversity exports write the reference-farm ids with underscores ("Ref_El_hatico"); the covariate tables keep the space ("Ref_El hatico")
+    mutate(Id_scr = str_replace_all(as.character(Id_scr), "_", " ") %>% str_replace("^Ref ", "Ref_")) %>%
+    filter(str_detect(Id_scr, "^Ref")) %>%
+    select(Assemblage, Id_scr, Uniq_db, Year_grp, Season, Hill, response, response_se)
+  Ref_sampling <- read_csv(file.path(WRANGLING_EXCELS, "Site_covs.csv"), show_col_types = FALSE) %>%
+    select(Id_survey_no_dc, Id_scr, Distance_farm) %>%
+    filter(str_detect(Id_scr, "^Ref")) %>%
+    left_join(read_csv(file.path(WRANGLING_EXCELS, "Event_covs.csv"), show_col_types = FALSE), by = "Id_survey_no_dc") %>%
+    filter(!is.na(Year)) %>%
+    mutate(Assemblage = str_replace_all(paste(Uniq_db, Id_scr, Year_grp, Season, sep = "."), " |-", "_")) %>%
+    summarize(Num_pc = n_distinct(Id_survey), doy = mean(Julian_day, na.rm = TRUE),
+              dist_farm = mean(Distance_farm, na.rm = TRUE), .by = Assemblage)
+  Ref_rows <- Ref_div %>%
+    left_join(Ref_sampling, by = "Assemblage") %>%
+    left_join(read_csv("Derived/Excels/Farm_covariates.csv", show_col_types = FALSE) %>%
+                mutate(Id_scr = as.character(Id_scr)) %>% select(Id_scr, Ecoregion, Elev_mean, Tot_prec_mean),
+              by = "Id_scr") %>%
+    left_join(Pool_raw %>% select(Id_scr, pool_wes), by = "Id_scr") %>%
+    left_join(read_csv("Data/Geospatial/Canopy_by_scale_assemblage.csv", show_col_types = FALSE) %>%
+                filter(radius_m == 10000) %>% select(Assemblage, canopy_10k = canopy_cover),
+              by = "Assemblage") %>%
+    mutate(CollectorXyear = paste(Uniq_db, Year_grp, sep = "_"),
+           log_response = log(response), se_log = response_se / response,
+           Num_pc_log = log(Num_pc),
+           doy_sin = sin(2 * pi * doy / 365), doy_cos = cos(2 * pi * doy / 365),
+           Elev_mean_z = z_with(Elev_mean, Base_frame$Elev_mean),
+           Tot_prec_mean_z = z_with(Tot_prec_mean, Base_frame$Tot_prec_mean),
+           canopy_10k_z = z_with(canopy_10k, Base_frame$canopy_10k),
+           pool_wes_z = z_with(pool_wes, Base_frame$pool_wes),
+           Num_pc_log_z = z_with(Num_pc_log, Base_frame$Num_pc_log))
+  stopifnot(nrow(Ref_rows) == 12,
+            !anyNA(select(Ref_rows, se_log, ends_with("_z"), Ecoregion, dist_farm, doy_sin)))
+
+  Fo_data <- bind_rows(Base_frame %>% mutate(is_ref = FALSE), Ref_rows %>% mutate(is_ref = TRUE)) %>%
+    left_join(select(Hab_mix, Assemblage, All_forest), by = "Assemblage") %>%
+    left_join(Lc_z, by = "Assemblage")
   stopifnot(!anyNA(Fo_data$All_forest))
 
-  ## Same row filters as 04a's cmax_frame (primary data subset)
+  ## Same row filters as 04a's cmax_frame (primary data subset), then the variant's subset
   fo_frame <- function(row) {
     df <- Fo_data %>%
       filter(Hill == row$hill, !is.na(se_log), !is.na(Num_pc_log_z), !is.na(doy_sin),
              !is.na(dist_farm), dist_farm < dist_threshold)
-    df <- df %>% mutate(focal_z = .data[[paste0(row$focal, "_z")]]) %>% filter(!is.na(focal_z))
+    if (!row$variant %in% c("all_farms_ref", "forest_int")) df <- df %>% filter(!is_ref)
+    df <- if (row$focal == "landcover") {
+      df %>% filter(!is.na(ssp_z), !is.na(ed_z))
+    } else {
+      df %>% mutate(focal_z = .data[[paste0(row$focal, "_z")]]) %>% filter(!is.na(focal_z))
+    }
     if (row$spec == "climate") {
       df <- df %>% filter(!is.na(Tot_prec_mean_z), !is.na(Elev_mean_z), !is.na(canopy_10k_z), !is.na(pool_wes_z))
     }
@@ -1148,13 +1203,18 @@ if ("forest_only" %in% run_sections) {
 
   fo_grid <- expand_grid(focal = fo_focals, variant = fo_variants, spec = names(fo_specs),
                          hill = c("richness", "shannon", "simpson")) %>%
+    bind_rows(expand_grid(focal = "landcover", variant = "all_farms_ref", spec = names(fo_specs),
+                          hill = c("richness", "shannon", "simpson"))) %>%
     mutate(key = paste("forestonly", variant, hill, focal, spec, sep = "__"))
 
   fo_fits <- fit_model_grid(
     fo_grid,
     build_bf = function(row) mgmt_bf(
       "log_response | resp_se(se_log, sigma = TRUE)",
-      if (row$variant == "forest_int") "focal_z * All_forest" else "focal_z",
+      {
+        focal_terms <- if (row$focal == "landcover") "ssp_z + ed_z" else "focal_z"
+        if (row$variant == "forest_int") paste0("(", focal_terms, ") * All_forest") else focal_terms
+      },
       c(fo_specs[[row$spec]], if (row$variant == "forest_cov") "All_forest",
         "Num_pc_log_z", "doy_sin", "doy_cos", "(1 | Id_scr)", "(1 | CollectorXyear)")
     ),
@@ -1163,7 +1223,7 @@ if ("forest_only" %in% run_sections) {
   )
 
   Fo_summ <- tidy_model_fits(fo_fits, fo_grid) %>%
-    filter(term %in% c("focal_z", "All_forest")) %>%
+    filter(term %in% c("focal_z", "ssp_z", "ed_z", "All_forest")) %>%
     mutate(n_farms = map_int(key, \(k) n_distinct(fo_fits[[k]]$data$Id_scr)),
            across(c(estimate, conf_low, conf_high, p_direction_pos, bayes_R2), ~ round(.x, 3))) %>%
     select(focal, variant, spec, hill, term, estimate, conf_low, conf_high, p_direction_pos,
@@ -1181,17 +1241,22 @@ if ("forest_only" %in% run_sections) {
     filter(variant == "forest_int") %>%
     pmap(\(key, focal, spec, hill, ...) {
       dr <- posterior::as_draws_df(fo_fits[[key]])
-      b_grad <- dr[["b_focal_z"]]
-      b_diff <- dr[["b_focal_z:All_forest"]]
-      bind_rows(slope_row(b_grad, "gradient", focal, spec, hill, "focal_z"),
-                slope_row(b_grad + b_diff, "forest_only", focal, spec, hill, "focal_z"),
-                slope_row(b_diff, "difference", focal, spec, hill, "focal_z"))
+      terms <- if (focal == "landcover") c("ssp_z", "ed_z") else "focal_z"
+      map(terms, \(tm) {
+        b_grad <- dr[[paste0("b_", tm)]]
+        b_diff <- dr[[paste0("b_", tm, ":All_forest")]]
+        bind_rows(slope_row(b_grad, "gradient", focal, spec, hill, tm),
+                  slope_row(b_grad + b_diff, "forest_only", focal, spec, hill, tm),
+                  slope_row(b_diff, "difference", focal, spec, hill, tm))
+      }) %>% list_rbind()
     }) %>%
     list_rbind() %>%
     mutate(across(c(estimate, conf_low, conf_high, p_direction_pos), ~ round(.x, 3)))
   write_csv(Fo_int_slopes, "Derived/Excels/Forest_int_slopes.csv")
 
-  cat("\n[forest_only] focal coefficient (90% CrI) by variant -- all = reference, forest_cov = + All_forest, forest_int = gradient slope from the interaction model\n")
+  cat("\n[forest_only] land-cover predictors in the modelling frame: Pearson r(ssp, ed) =",
+      round(cor(Lc_z$ssp, Lc_z$ed), 2), "; Spearman =", round(cor(Lc_z$ssp, Lc_z$ed, method = "spearman"), 2), "\n")
+  cat("[forest_only] focal coefficient (90% CrI) by variant -- all = reference, forest_cov = + All_forest, forest_int = gradient slope from the interaction model, all_farms_ref = + reference farms\n")
   Fo_summ %>%
     filter(term != "All_forest") %>%
     mutate(cell = sprintf("%+.2f [%+.2f, %+.2f]", estimate, conf_low, conf_high)) %>%
